@@ -1,0 +1,191 @@
+{
+  "site": {
+    "name": "Library 3D Navigation",
+    "width": 50,
+    "depth": 35,
+    "floorHeight": 3.8,
+    "walkSpeed": 1.2,
+    "geoAnchors": {
+      "comment": "origin maps to local (0,0) = north-west drawing corner; xAxis maps to local (50,0). Set real values in the app settings screen or here.",
+      "origin": { "lat": 25.033100, "lng": 121.543000 },
+      "xAxis": { "lat": 25.033100, "lng": 121.543497 }
+    },
+    "floors": [
+      { "level": 2, "z": 0.0, "label": "Floor 2 — Periodicals & newspapers" },
+      { "level": 4, "z": 7.6, "label": "Floor 4 — Books: history, language, arts" },
+      { "level": 5, "z": 11.4, "label": "Floor 5 — Books: science & society" }
+    ]
+  },
+  "floors": {
+    "2": {
+      "outline": [[13,0],[50,0],[50,29],[30,29],[30,26],[21.5,26],[21.5,34],[0.5,34],[0.5,12],[8.5,12],[13,12]],
+      "zones": [
+        { "id": "2F-A", "name": "Newspaper reading area", "class": null, "kind": "reading", "color": "#7fbf7f", "node": "n2-a",
+          "poly": [[8.5,12],[21.5,12],[21.5,25.5],[8.5,25.5]] },
+        { "id": "2F-B", "name": "Foreign current periodicals", "class": null, "kind": "collection", "color": "#f0b269", "node": "n2-b",
+          "poly": [[0.7,25.5],[12,25.5],[12,33.9],[0.7,33.9]] },
+        { "id": "2F-C", "name": "Current month newspapers", "class": null, "kind": "collection", "color": "#7ec8e3", "node": "n2-c",
+          "poly": [[0.5,18],[8.5,18],[8.5,21.2],[0.5,21.2]] },
+        { "id": "2F-D", "name": "Chinese periodicals (classes 0-2)", "class": null, "kind": "collection", "color": "#ef93b1", "node": "n2-d",
+          "poly": [[0.5,21.2],[7.6,21.2],[7.6,25.5],[0.5,25.5]] },
+        { "id": "2F-E", "name": "Chinese periodicals (classes 3-9)", "class": null, "kind": "collection", "color": "#b09ed6", "node": "n2-e",
+          "poly": [[13,0],[27.5,0],[27.5,10],[21.5,10],[21.5,11.7],[13,11.7]] },
+        { "id": "2F-F", "name": "Bound periodicals and academic journals", "class": null, "kind": "collection", "color": "#efe27a", "node": "n2-f",
+          "poly": [[30,9.6],[50,9.6],[50,20.8],[38,20.8],[38,28.5],[30,28.5]] },
+        { "id": "2F-WC", "name": "Restrooms (2F)", "class": null, "kind": "restroom", "color": "#c8ccd4", "node": "n2-wc",
+          "poly": [[27.5,0],[38,0],[38,7.5],[27.5,7.5]] },
+        { "id": "2F-ESC", "name": "Escalator and central stairs (2F)", "class": null, "kind": "escalator", "color": "#aab4c8", "node": "n2-esc",
+          "poly": [[21.7,10],[28.8,10],[28.8,17.6],[21.7,17.6]] },
+        { "id": "2F-ELEV", "name": "Elevator (2F)", "class": null, "kind": "elevator", "color": "#aab4c8", "node": "n2-elev",
+          "poly": [[17,30],[21,30],[21,32.5],[17,32.5]] },
+        { "id": "2F-STAIR", "name": "South stairs (2F)", "class": null, "kind": "stairs", "color": "#aab4c8", "node": "n2-stairs",
+          "poly": [[12.7,30],[16.6,30],[16.6,33],[12.7,33]] }
+      ],
+      "nodes": [
+        { "id": "n2-esc", "x": 25.0, "y": 14.0, "kind": "escalator" },
+        { "id": "n2-hall", "x": 25.0, "y": 19.0, "kind": "corridor" },
+        { "id": "n2-f", "x": 40.0, "y": 18.0, "kind": "zone" },
+        { "id": "n2-a", "x": 15.0, "y": 18.0, "kind": "zone" },
+        { "id": "n2-e", "x": 18.0, "y": 6.0, "kind": "zone" },
+        { "id": "n2-wc", "x": 31.0, "y": 8.2, "kind": "zone" },
+        { "id": "n2-c", "x": 4.5, "y": 19.5, "kind": "zone" },
+        { "id": "n2-d", "x": 4.0, "y": 23.5, "kind": "zone" },
+        { "id": "n2-b", "x": 6.0, "y": 29.5, "kind": "zone" },
+        { "id": "n2-south", "x": 18.0, "y": 27.0, "kind": "corridor" },
+        { "id": "n2-elev", "x": 19.0, "y": 31.2, "kind": "elevator" },
+        { "id": "n2-stairs", "x": 14.6, "y": 31.5, "kind": "stairs" }
+      ],
+      "edges": [
+        ["n2-esc", "n2-hall"], ["n2-hall", "n2-f"], ["n2-hall", "n2-a"],
+        ["n2-a", "n2-e"], ["n2-e", "n2-wc"], ["n2-wc", "n2-f"],
+        ["n2-a", "n2-c"], ["n2-c", "n2-d"], ["n2-d", "n2-b"],
+        ["n2-a", "n2-south"], ["n2-south", "n2-b"], ["n2-south", "n2-elev"],
+        ["n2-south", "n2-stairs"], ["n2-elev", "n2-stairs"]
+      ]
+    },
+    "4": {
+      "outline": [[16,3.3],[39.5,3.3],[39.5,11.9],[50,11.9],[50,22.6],[42,22.6],[42,25],[32,25],[32,35],[16,35],[16,29],[12.8,29],[12.8,34],[1.8,34],[1.8,19.6],[12.8,19.6],[12.8,26],[16,26]],
+      "zones": [
+        { "id": "4F-A", "name": "World history and geography books (class 7)", "class": 7, "kind": "collection", "color": "#f2d3ac", "node": "n4-a",
+          "poly": [[23.5,24.5],[32,24.5],[32,35],[23.5,35]] },
+        { "id": "4F-B", "name": "Arts books (class 9)", "class": 9, "kind": "collection", "color": "#e98fe9", "node": "n4-b",
+          "poly": [[32.4,19.6],[42,19.6],[42,25],[32.4,25]] },
+        { "id": "4F-C", "name": "Foreign-language books", "class": null, "kind": "collection", "color": "#a9cf62", "node": "n4-c",
+          "poly": [[31.9,12],[50,12],[50,22.6],[42,22.6],[42,19.6],[31.9,19.6]] },
+        { "id": "4F-DN", "name": "Language and literature books (class 8, north)", "class": 8, "kind": "collection", "color": "#e6493a", "node": "n4-dn",
+          "poly": [[16,3.5],[31.4,3.5],[31.4,11.7],[16,11.7]] },
+        { "id": "4F-DS", "name": "Language and literature books (class 8, south)", "class": 8, "kind": "collection", "color": "#e6493a", "node": "n4-ds",
+          "poly": [[23.2,18.2],[32,18.2],[32,24.5],[23.2,24.5]] },
+        { "id": "4F-E", "name": "Acquisitions and cataloging office (staff only)", "class": null, "kind": "staff", "color": "#5aabe3", "node": "n4-e",
+          "poly": [[1.8,19.6],[12.8,19.6],[12.8,34],[1.8,34]] },
+        { "id": "4F-F", "name": "Reading area (48 study seats)", "class": null, "kind": "reading", "color": "#cfd6e2", "node": "n4-f",
+          "poly": [[23.2,12],[31.4,12],[31.4,18.2],[23.2,18.2]] },
+        { "id": "4F-WC", "name": "Restrooms (4F)", "class": null, "kind": "restroom", "color": "#c8ccd4", "node": "n4-wc",
+          "poly": [[31.4,3.5],[39.5,3.5],[39.5,11.4],[31.4,11.4]] },
+        { "id": "4F-ESC", "name": "Escalator and central stairs (4F)", "class": null, "kind": "escalator", "color": "#aab4c8", "node": "n4-esc",
+          "poly": [[16,12],[23.2,12],[23.2,18],[16,18]] },
+        { "id": "4F-ELEV", "name": "Elevator (4F)", "class": null, "kind": "elevator", "color": "#aab4c8", "node": "n4-elev",
+          "poly": [[16.8,26.6],[18.6,26.6],[18.6,29.2],[16.8,29.2]] },
+        { "id": "4F-STAIR", "name": "South stairs (4F)", "class": null, "kind": "stairs", "color": "#aab4c8", "node": "n4-stairs",
+          "poly": [[19.4,31.3],[22.9,31.3],[22.9,33.4],[19.4,33.4]] }
+      ],
+      "nodes": [
+        { "id": "n4-esc", "x": 19.5, "y": 15.0, "kind": "escalator" },
+        { "id": "n4-hall", "x": 19.5, "y": 21.0, "kind": "corridor" },
+        { "id": "n4-f", "x": 27.0, "y": 15.0, "kind": "zone" },
+        { "id": "n4-dn", "x": 23.0, "y": 8.0, "kind": "zone" },
+        { "id": "n4-wc", "x": 35.0, "y": 8.0, "kind": "zone" },
+        { "id": "n4-c", "x": 42.0, "y": 16.0, "kind": "zone" },
+        { "id": "n4-b", "x": 37.0, "y": 22.3, "kind": "zone" },
+        { "id": "n4-ds", "x": 27.5, "y": 21.3, "kind": "zone" },
+        { "id": "n4-a", "x": 27.5, "y": 29.0, "kind": "zone" },
+        { "id": "n4-elev", "x": 17.7, "y": 27.9, "kind": "elevator" },
+        { "id": "n4-stairs", "x": 21.2, "y": 32.3, "kind": "stairs" },
+        { "id": "n4-corr", "x": 14.4, "y": 27.5, "kind": "corridor" },
+        { "id": "n4-e", "x": 7.0, "y": 27.0, "kind": "zone" }
+      ],
+      "edges": [
+        ["n4-esc", "n4-f"], ["n4-esc", "n4-hall"], ["n4-f", "n4-dn"],
+        ["n4-dn", "n4-wc"], ["n4-f", "n4-c"], ["n4-c", "n4-b"],
+        ["n4-hall", "n4-ds"], ["n4-ds", "n4-b"], ["n4-ds", "n4-a"],
+        ["n4-hall", "n4-elev"], ["n4-a", "n4-stairs"], ["n4-elev", "n4-stairs"],
+        ["n4-elev", "n4-corr"], ["n4-corr", "n4-e"]
+      ]
+    },
+    "5": {
+      "outline": [[11,1],[39,1],[39,9.6],[49.5,9.6],[49.5,18],[40,18],[40,26],[33,26],[33,31.5],[23,31.5],[23,33],[14,33],[14,31.5],[4,31.5],[4,13.8],[11,13.8]],
+      "zones": [
+        { "id": "5F-A", "name": "Reading area (60 study seats)", "class": null, "kind": "reading", "color": "#cfd6e2", "node": "n5-a",
+          "poly": [[20.7,10],[29.5,10],[29.5,26],[20.7,26]] },
+        { "id": "5F-B", "name": "Compact stacks (reservation required)", "class": null, "kind": "restricted", "color": "#9dc3ee", "node": "n5-b",
+          "poly": [[4,17.8],[12.8,17.8],[12.8,31.3],[4,31.3]] },
+        { "id": "5F-C", "name": "Science books (class 3)", "class": 3, "kind": "collection", "color": "#c9c9c9", "node": "n5-c",
+          "poly": [[14,4],[19.4,4],[19.4,9.6],[14,9.6]] },
+        { "id": "5F-D", "name": "Applied science books (class 4)", "class": 4, "kind": "collection", "color": "#b98fd0", "node": "n5-d",
+          "poly": [[30,14],[39.8,14],[39.8,24],[30,24]] },
+        { "id": "5F-E", "name": "Social science books (class 5)", "class": 5, "kind": "collection", "color": "#f0d09a", "node": "n5-e",
+          "poly": [[29.5,10.3],[47.5,10.3],[47.5,14],[29.5,14]] },
+        { "id": "5F-F", "name": "Chinese history and geography books (class 6)", "class": 6, "kind": "collection", "color": "#b8860b", "node": "n5-f",
+          "poly": [[40,14],[48,14],[48,17.7],[40,17.7]] },
+        { "id": "5F-G", "name": "Religion books (class 2)", "class": 2, "kind": "collection", "color": "#a9e3a4", "node": "n5-g",
+          "poly": [[19.4,2.8],[23.2,2.8],[23.2,9.6],[19.4,9.6]] },
+        { "id": "5F-H", "name": "General works and philosophy books (classes 0-1)", "class": 0, "kind": "collection", "color": "#7da7e8", "node": "n5-h",
+          "poly": [[23.2,1.9],[30.4,1.9],[30.4,9.6],[23.2,9.6]] },
+        { "id": "5F-I", "name": "Shanghai Window / Reading Beijing collection", "class": null, "kind": "collection", "color": "#f0a3a3", "node": "n5-i",
+          "poly": [[15.3,16.8],[20.7,16.8],[20.7,22.2],[15.3,22.2]] },
+        { "id": "5F-J", "name": "Northern Region Resource Center", "class": null, "kind": "collection", "color": "#f2c94c", "node": "n5-j",
+          "poly": [[23,25.5],[32.7,25.5],[32.7,31.5],[23,31.5]] },
+        { "id": "5F-WC", "name": "Restrooms (5F)", "class": null, "kind": "restroom", "color": "#c8ccd4", "node": "n5-wc",
+          "poly": [[31,1.5],[39,1.5],[39,9.6],[31,9.6]] },
+        { "id": "5F-ESC", "name": "Escalator (5F)", "class": null, "kind": "escalator", "color": "#aab4c8", "node": "n5-esc",
+          "poly": [[16,11],[20,11],[20,13.3],[16,13.3]] },
+        { "id": "5F-ELEV", "name": "Elevator (5F)", "class": null, "kind": "elevator", "color": "#aab4c8", "node": "n5-elev",
+          "poly": [[14.5,24.8],[18.4,24.8],[18.4,26.9],[14.5,26.9]] },
+        { "id": "5F-STAIR", "name": "South stairs (5F)", "class": null, "kind": "stairs", "color": "#aab4c8", "node": "n5-stairs",
+          "poly": [[14.5,28],[18.4,28],[18.4,30.6],[14.5,30.6]] }
+      ],
+      "nodes": [
+        { "id": "n5-esc", "x": 18.0, "y": 12.2, "kind": "escalator" },
+        { "id": "n5-hall", "x": 22.0, "y": 14.0, "kind": "corridor" },
+        { "id": "n5-c", "x": 16.7, "y": 6.8, "kind": "zone" },
+        { "id": "n5-g", "x": 21.3, "y": 6.0, "kind": "zone" },
+        { "id": "n5-h", "x": 26.8, "y": 5.5, "kind": "zone" },
+        { "id": "n5-wc", "x": 35.0, "y": 5.5, "kind": "zone" },
+        { "id": "n5-a", "x": 25.0, "y": 20.0, "kind": "zone" },
+        { "id": "n5-east", "x": 29.7, "y": 12.5, "kind": "corridor" },
+        { "id": "n5-e", "x": 34.0, "y": 12.0, "kind": "zone" },
+        { "id": "n5-f", "x": 44.0, "y": 16.0, "kind": "zone" },
+        { "id": "n5-d", "x": 35.0, "y": 19.0, "kind": "zone" },
+        { "id": "n5-i", "x": 18.0, "y": 19.5, "kind": "zone" },
+        { "id": "n5-b", "x": 8.4, "y": 24.5, "kind": "zone" },
+        { "id": "n5-elev", "x": 16.5, "y": 25.9, "kind": "elevator" },
+        { "id": "n5-stairs", "x": 16.5, "y": 29.3, "kind": "stairs" },
+        { "id": "n5-j", "x": 27.9, "y": 28.5, "kind": "zone" }
+      ],
+      "edges": [
+        ["n5-esc", "n5-hall"], ["n5-hall", "n5-g"], ["n5-g", "n5-c"],
+        ["n5-g", "n5-h"], ["n5-h", "n5-wc"], ["n5-hall", "n5-a"],
+        ["n5-a", "n5-east"], ["n5-east", "n5-e"], ["n5-e", "n5-f"],
+        ["n5-east", "n5-d"], ["n5-h", "n5-east"], ["n5-hall", "n5-i"],
+        ["n5-i", "n5-b"], ["n5-i", "n5-elev"], ["n5-elev", "n5-b"],
+        ["n5-elev", "n5-stairs"], ["n5-a", "n5-j"], ["n5-d", "n5-j"]
+      ]
+    }
+  },
+  "connectors": [
+    { "kind": "escalator", "accessible": false,
+      "links": [ { "from": ["2", "n2-esc"], "to": ["4", "n4-esc"], "storeys": 2 },
+                 { "from": ["4", "n4-esc"], "to": ["5", "n5-esc"], "storeys": 1 } ] },
+    { "kind": "elevator", "accessible": true,
+      "links": [ { "from": ["2", "n2-elev"], "to": ["4", "n4-elev"], "storeys": 2 },
+                 { "from": ["4", "n4-elev"], "to": ["5", "n5-elev"], "storeys": 1 },
+                 { "from": ["2", "n2-elev"], "to": ["5", "n5-elev"], "storeys": 3 } ] },
+    { "kind": "stairs", "accessible": false,
+      "links": [ { "from": ["2", "n2-stairs"], "to": ["4", "n4-stairs"], "storeys": 2 },
+                 { "from": ["4", "n4-stairs"], "to": ["5", "n5-stairs"], "storeys": 1 } ] }
+  ],
+  "classZones": {
+    "0": "5F-H", "1": "5F-H", "2": "5F-G", "3": "5F-C", "4": "5F-D",
+    "5": "5F-E", "6": "5F-F", "7": "4F-A", "8": "4F-DN", "9": "4F-B"
+  }
+}
