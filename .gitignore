@@ -1,0 +1,13 @@
+# secrets - never commit real credentials
+backend/.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# editor / OS noise
+.vscode/
+Thumbs.db
+.DS_Store
+~$*.pptx
