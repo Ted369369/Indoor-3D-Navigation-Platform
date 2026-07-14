@@ -238,7 +238,13 @@ class UserState:
     floor: str | None = None
     floor_votes: list = field(default_factory=list)
     admitted: bool = False
+    queued_at: float = 0.0        # when the user (re)became active - FIFO fairness
+    notified: str = ""            # last control state sent ("admit"/"reject")
+    last_reject_note: float = 0.0
     session_row: int | None = None
+
+    def is_active(self, now: float) -> bool:
+        return self.last_gps > 0 and (now - self.last_gps) < GPS_STALE_S
 
 
 class Engine:
@@ -283,6 +289,7 @@ class Engine:
             ("libnav/dev/+/status", 1),
             ("libnav/user/+/gps", 0),
             ("libnav/user/+/pair", 1),
+            ("libnav/user/+/presence", 1),
             ("libnav/site/anchors", 1),
         ])
         client.publish("libnav/engine/status", "online", qos=1, retain=True)
@@ -298,6 +305,8 @@ class Engine:
                 self.handle_gps(parts[2], json.loads(msg.payload))
             elif parts[1] == "user" and parts[3] == "pair":
                 self.handle_pair(parts[2], msg.payload)
+            elif parts[1] == "user" and parts[3] == "presence":
+                self.handle_presence(parts[2], msg.payload.decode())
             elif parts[1] == "site" and parts[2] == "anchors":
                 self.handle_anchors(json.loads(msg.payload))
         except Exception as exc:
@@ -339,14 +348,13 @@ class Engine:
         acc = float(data.get("acc", 30.0))
         with self.lock:
             user = self.users.setdefault(uid, UserState(uid))
-            first_fix = user.last_gps == 0.0
+            if not user.is_active(now):
+                user.queued_at = now  # (re)joining the admission queue
             user.kf.predict(now - user.last_kf_time if user.last_kf_time else 0.0)
             user.kf.update(x, y, acc / 2.0)
             user.last_kf_time = now
             user.last_gps = now
             user.gps_acc = acc
-            if first_fix:
-                self.review_capacity()
 
     def handle_pair(self, uid: str, payload: bytes):
         device_id = None
@@ -366,32 +374,64 @@ class Engine:
         except (KeyError, TypeError) as exc:
             log.warning("ignored bad anchors payload: %s", exc)
 
+    def handle_presence(self, uid: str, status: str):
+        """Web-client LWT: an 'offline' releases the slot immediately instead
+        of waiting for the 30 s GPS staleness window."""
+        if status != "offline":
+            return
+        with self.lock:
+            user = self.users.get(uid)
+            if user and user.last_gps > 0:
+                # push just past the staleness window: inactive now, pruned later
+                user.last_gps = time.time() - GPS_STALE_S - 1
+                log.info("user %s went offline (presence) - slot released", uid)
+
     # ------------------------------------------------------------ capacity
     def review_capacity(self):
-        """Admit up to MAX_ACTIVE_USERS of the currently active users (FIFO)."""
+        """Runs every tick: demote stale users, admit waiting ones FIFO, and
+        keep queued clients informed. Notifications fire on state changes,
+        plus a 5 s reject heartbeat so a client that missed a message (or the
+        engine's earlier state) always converges to the truth."""
         now = time.time()
-        active = [u for u in self.users.values() if now - u.last_gps < GPS_STALE_S]
-        active.sort(key=lambda u: u.last_gps)
-        admitted = [u for u in active if u.admitted]
-        free = MAX_ACTIVE_USERS - len(admitted)
-        for user in active:
-            if user.admitted:
-                continue
+
+        for user in self.users.values():
+            if user.admitted and not user.is_active(now):
+                user.admitted = False
+                user.notified = ""
+                self.log_session_end(user)
+                log.info("user %s inactive - slot released", user.uid)
+
+        active = [u for u in self.users.values() if u.is_active(now)]
+        admitted_n = sum(1 for u in active if u.admitted)
+        free = MAX_ACTIVE_USERS - admitted_n
+        waiting = sorted((u for u in active if not u.admitted), key=lambda u: u.queued_at)
+
+        for user in waiting:
             if free > 0:
                 user.admitted = True
                 free -= 1
-                self.notify(user.uid, "admit", slots=free)
+                admitted_n += 1
+                self.notify(user.uid, "admit", slots=free, active=admitted_n)
+                user.notified = "admit"
                 self.log_session_start(user)
-            else:
-                self.notify(user.uid, "reject", reason="capacity", slots=0)
+            elif user.notified != "reject" or now - user.last_reject_note > 5.0:
+                self.notify(user.uid, "reject", reason="capacity", slots=0, active=admitted_n)
+                user.notified = "reject"
+                user.last_reject_note = now
 
-    def notify(self, uid: str, action: str, reason: str = "", slots: int = 0):
+        # forget users idle for a long time so phantom uids never accumulate
+        for uid in [u for u, s in self.users.items()
+                    if s.last_gps > 0 and now - s.last_gps > 900]:
+            del self.users[uid]
+
+    def notify(self, uid: str, action: str, reason: str = "", slots: int = 0, active: int = 0):
         self.client.publish(
             f"libnav/user/{uid}/control",
-            json.dumps({"action": action, "reason": reason, "slots": slots}),
+            json.dumps({"action": action, "reason": reason, "slots": slots,
+                        "active": active, "max": MAX_ACTIVE_USERS, "ts": int(time.time() * 1000)}),
             qos=1,
         )
-        log.info("user %s -> %s %s", uid, action, reason)
+        log.info("user %s -> %s %s (active=%d/%d)", uid, action, reason, active, MAX_ACTIVE_USERS)
 
     def log_session_start(self, user: UserState):
         if not self.supa:
@@ -428,12 +468,9 @@ class Engine:
     def tick(self):
         now = time.time()
         with self.lock:
+            self.review_capacity()
             for user in list(self.users.values()):
-                if now - user.last_gps > GPS_STALE_S:
-                    if user.admitted:
-                        user.admitted = False
-                        self.log_session_end(user)
-                        self.review_capacity()
+                if not user.is_active(now):
                     continue
                 if not user.admitted or not user.kf.initialized:
                     continue
