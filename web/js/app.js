@@ -166,15 +166,33 @@ function onSelfPos(p) {
 
 function onControl(msg) {
   if (msg.action === "reject") {
+    const first = state.admitted;
     state.admitted = false;
+    state.lastRejectAt = Date.now();
+    if (msg.active) {
+      $("capacityText").innerHTML =
+        `Active devices: <b>${msg.active} / ${msg.max || CFG.maxDevices}</b>.<br />` +
+        "You are queued and will connect automatically when a slot frees up.";
+    }
     $("capacityOverlay").hidden = false;
-    speaker.speak("The system is at full capacity. You are in the queue.");
+    if (first) speaker.speak("The system is at full capacity. You are in the queue.");
   } else if (msg.action === "admit") {
     if (!state.admitted) toast("A slot opened up - you are connected", "ok");
     state.admitted = true;
     $("capacityOverlay").hidden = true;
   }
 }
+
+// Self-healing: the engine re-sends "reject" every 5 s while we are queued.
+// If that heartbeat stops (slot freed but the admit was lost, engine restart,
+// stale state), clear the overlay instead of blocking the user forever.
+setInterval(() => {
+  if (!$("capacityOverlay").hidden && Date.now() - (state.lastRejectAt || 0) > 15000) {
+    state.admitted = true;
+    $("capacityOverlay").hidden = true;
+    toast("Capacity hold cleared - resuming", "ok");
+  }
+}, 3000);
 
 /* ============================== navigation ============================== */
 function navigateTo(target, lead = "") {

@@ -140,6 +140,7 @@ def main():
     walkers = [Walker(i + 1, model) for i in range(args.users)]
     for w in walkers:
         client.publish(f"libnav/user/{w.uid}/pair", json.dumps({"device": w.dev}), qos=1, retain=True)
+        client.publish(f"libnav/user/{w.uid}/presence", "online", qos=1, retain=True)
     log.info("simulating %d visitors + reference node against %s", args.users, MQTT_HOST)
 
     seq = 0
@@ -181,8 +182,11 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        # announce a clean exit so the engine frees the slots immediately
         for w in walkers:
             client.publish(f"libnav/user/{w.uid}/pair", b"", qos=1, retain=True)
+            client.publish(f"libnav/user/{w.uid}/presence", "offline", qos=1, retain=True)
+        time.sleep(0.5)  # let the queued publishes flush before disconnecting
         client.loop_stop()
         client.disconnect()
 
