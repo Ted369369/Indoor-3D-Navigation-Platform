@@ -1,5 +1,9 @@
 # Library 3D Navigation
 
+**Live app:** <https://ted369369.github.io/Indoor-3D-Navigation-Platform/> —
+open it on your phone (HTTPS, so GPS works). Auto-deployed from `web/` on
+every push to `main`.
+
 Real-time 3D indoor navigation for a three-storey library (floors 2 / 4 / 5,
 50 × 35 m, 3.8 m per storey), built from hand-drawn floor plans.
 
