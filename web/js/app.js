@@ -34,43 +34,109 @@ async function boot() {
 
   const prefs = JSON.parse(localStorage.getItem("libnav.prefs") || "{}");
   $("nameInput").value = prefs.name || "";
-  $("deviceInput").value = prefs.deviceId || "";
+  state.lastDeviceId = prefs.deviceId || ""; // preselect hint only - user still confirms
   $("blindToggle").checked = !!prefs.blind;
   $("accessibleToggle").checked = !!prefs.accessible;
   if (!social.enabled) $("soloNote").hidden = false;
 
+  // Two-step onboarding: 1) profile -> connect, 2) pick a nearby sensor.
+  // Pairing is always an explicit user choice - never automatic.
+  let welcomeStep = 1;
   $("welcomeForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const btn = $("startBtn");
-    btn.disabled = true;
-    btn.textContent = "Connecting…";
-    try {
-      await start({
-        name: $("nameInput").value.trim() || "Visitor",
-        deviceId: $("deviceInput").value.trim().toUpperCase(),
-        blind: $("blindToggle").checked,
-        accessible: $("accessibleToggle").checked,
-      });
-      $("welcomeModal").hidden = true;
-    } catch (err) {
-      toast(err.message, "error");
-      btn.disabled = false;
-      btn.textContent = "Start navigating";
+    if (welcomeStep === 1) {
+      btn.disabled = true;
+      btn.textContent = "Connecting…";
+      try {
+        await startCore({
+          name: $("nameInput").value.trim() || "Visitor",
+          blind: $("blindToggle").checked,
+          accessible: $("accessibleToggle").checked,
+        });
+        welcomeStep = 2;
+        $("stepProfile").hidden = true;
+        $("stepDevice").hidden = false;
+        btn.textContent = "Start navigating";
+        btn.disabled = !state.deviceId;
+        renderDeviceList();
+      } catch (err) {
+        toast(err.message, "error");
+        btn.disabled = false;
+        btn.textContent = "Continue";
+      }
+    } else {
+      if (!state.deviceId) return;
+      finalizeStart();
     }
+  });
+  $("btnSkipDevice").addEventListener("click", () => {
+    state.deviceId = "";
+    finalizeStart();
   });
 }
 
-async function start(opts) {
+/* ------------------------- sensor discovery picker ---------------------- */
+function renderDeviceList() {
+  const box = $("deviceList");
+  if ($("stepDevice").hidden) return;
+  const devices = (state.directory?.devices || [])
+    .filter((d) => d.role === "user")
+    .sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999))
+    .slice(0, CFG.maxDevices);
+
+  if (!devices.length) {
+    box.innerHTML =
+      `<div class="dev-empty"><div class="spinner"></div>` +
+      `Searching for nearby sensors… make sure your unit is powered on.</div>`;
+    return;
+  }
+
+  box.innerHTML = "";
+  for (const d of devices) {
+    const takenByOther = d.pairedBy && d.pairedBy !== state.uid;
+    const usable = d.online && !takenByOther;
+    const status = takenByOther ? "In use" : d.online ? "Available" : "Offline";
+    const bars = d.rssi == null ? 0 : d.rssi > -55 ? 4 : d.rssi > -65 ? 3 : d.rssi > -75 ? 2 : 1;
+    const row = el(`<div class="dev-row ${usable ? "" : "disabled"} ${state.deviceId === d.id ? "selected" : ""}"
+        role="option" aria-selected="${state.deviceId === d.id}" tabindex="${usable ? 0 : -1}">
+      <span class="sig" title="${d.rssi != null ? d.rssi + " dBm" : "no signal"}">
+        ${[1, 2, 3, 4].map((i) => `<i class="${i <= bars ? "on" : ""}"></i>`).join("")}</span>
+      <span class="dev-id">${esc(d.id)}</span>
+      <span class="dev-status">${status}</span></div>`);
+    if (usable) {
+      const select = () => {
+        state.deviceId = d.id;
+        $("startBtn").disabled = false;
+        renderDeviceList();
+      };
+      row.addEventListener("click", select);
+      row.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(); }
+      });
+    }
+    box.appendChild(row);
+  }
+
+  // returning visitor convenience: highlight last unit, still needs a tap
+  if (!state.deviceId && state.lastDeviceId) {
+    const prev = devices.find((d) => d.id === state.lastDeviceId && d.online &&
+      (!d.pairedBy || d.pairedBy === state.uid));
+    if (prev) {
+      const rows = box.querySelectorAll(".dev-row");
+      const idx = devices.indexOf(prev);
+      rows[idx]?.classList.add("suggested");
+    }
+  }
+}
+
+async function startCore(opts) {
   Object.assign(state, opts);
-  localStorage.setItem("libnav.prefs", JSON.stringify({
-    ...opts, uid: JSON.parse(localStorage.getItem("libnav.prefs") || "{}").uid,
-  }));
 
   // ---- identity
   let extraKeywords = [];
   if (social.enabled) {
     state.uid = await social.signIn(state.name);
-    social.registerDevice(state.deviceId).catch(() => {});
     extraKeywords = await social.loadKeywords().catch(() => []);
     social.addEventListener("friends-changed", refreshFriends);
   } else {
@@ -102,10 +168,7 @@ async function start(opts) {
     $("latency").textContent = `${e.detail.ms} ms`;
   });
   bus.client.on("connect", () => {
-    if (state.deviceId) {
-      bus.publish(`libnav/user/${state.uid}/pair`, { device: state.deviceId },
-        { retain: true, qos: 1 });
-    }
+    publishPairing(); // re-assert (or clear) the claim on every (re)connect
     const anchors = JSON.parse(localStorage.getItem("libnav.anchors") || "null");
     if (anchors) bus.publish("libnav/site/anchors", anchors, { retain: true, qos: 1 });
   });
@@ -116,13 +179,21 @@ async function start(opts) {
     state.engineOnline = payload.toString() === "online";
     if (!state.engineOnline) toast("Position engine offline - live tracking paused", "warn");
   });
-  if (state.deviceId) {
-    bus.on(`libnav/dev/${state.deviceId}/telemetry`, (t, payload) => {
-      const d = JSON.parse(payload);
-      state.sensorLastSeen = Date.now();
-      state.sensorRssi = d.rssi;
-    });
-  }
+  // live sensor discovery feed (drives the pairing picker + sensor dot)
+  bus.on("libnav/directory", (t, payload) => {
+    try {
+      state.directory = JSON.parse(payload);
+      renderDeviceList();
+    } catch { /* ignore malformed */ }
+  });
+  // telemetry of whichever unit is currently paired (wildcard + guard, so
+  // re-pairing needs no re-subscription bookkeeping)
+  bus.on("libnav/dev/+/telemetry", (t, payload) => {
+    if (!state.deviceId || t.split("/")[2] !== state.deviceId) return;
+    const d = JSON.parse(payload);
+    state.sensorLastSeen = Date.now();
+    state.sensorRssi = d.rssi;
+  });
 
   // ---- GPS
   gps = new GpsPublisher(bus, state.uid, CFG.gpsPublishHz);
@@ -137,16 +208,45 @@ async function start(opts) {
 
   wireUi();
   await refreshFriends();
+}
 
+/** Called once the user has explicitly chosen (or skipped) a sensor. */
+function finalizeStart() {
+  localStorage.setItem("libnav.prefs", JSON.stringify({
+    name: state.name, blind: state.blind, accessible: state.accessible,
+    deviceId: state.deviceId || "",
+    uid: JSON.parse(localStorage.getItem("libnav.prefs") || "{}").uid,
+  }));
+  publishPairing();
+  if (social.enabled && state.deviceId) {
+    social.registerDevice(state.deviceId).catch(() => {});
+  }
+  $("welcomeModal").hidden = true;
+
+  const sensorNote = state.deviceId
+    ? `Sensor ${state.deviceId} is paired with your GPS.`
+    : "No sensor paired - floor detection is unavailable.";
   chatSystem(
-    `Welcome, ${state.name}. Ask me for a book subject ("C language", ` +
-    `"Qing dynasty history"), a place ("somewhere to study", "newspapers"), ` +
-    `or a friend's name.`
+    `Welcome, ${state.name}. ${sensorNote} Ask me for a book subject ` +
+    `("C language", "Qing dynasty history"), a place ("somewhere to study", ` +
+    `"newspapers"), or a friend's name.`
   );
   speaker.speak(
     `Welcome to the library navigator, ${state.name}. ` +
+    (state.deviceId ? `Sensor ${state.deviceId} paired. ` : "") +
     (state.blind ? "Voice guidance is on. Type or dictate where you want to go." : "")
   , { interrupt: true });
+}
+
+/** Retained claim: {device} to pair, empty payload to release. */
+function publishPairing() {
+  if (!state.uid) return;
+  const topic = `libnav/user/${state.uid}/pair`;
+  if (state.deviceId) {
+    bus.publish(topic, { device: state.deviceId }, { retain: true, qos: 1 });
+  } else {
+    bus.publish(topic, "", { retain: true, qos: 1 });
+  }
 }
 
 /* ============================== positions =============================== */
@@ -180,6 +280,23 @@ function onControl(msg) {
     if (!state.admitted) toast("A slot opened up - you are connected", "ok");
     state.admitted = true;
     $("capacityOverlay").hidden = true;
+  } else if (msg.action === "pair_ok") {
+    toast(`Sensor ${msg.device} paired`, "ok");
+  } else if (msg.action === "pair_denied") {
+    const why = msg.reason === "in-use"
+      ? `${msg.device} is already in use by another visitor`
+      : `${msg.device} cannot be paired (${msg.reason})`;
+    state.deviceId = "";
+    publishPairing();
+    toast(why, "warn");
+    speaker.speak(`Pairing failed. ${why}. Please pick another sensor.`);
+    // reopen the picker so the user chooses a different unit
+    $("stepProfile").hidden = true;
+    $("stepDevice").hidden = false;
+    $("startBtn").textContent = "Start navigating";
+    $("startBtn").disabled = true;
+    $("welcomeModal").hidden = false;
+    renderDeviceList();
   }
 }
 
@@ -560,3 +677,6 @@ boot().catch((err) => {
   console.error(err);
   toast(`Startup failed: ${err.message}`, "error");
 });
+
+// debug/testing handle (harmless in production)
+window.__nav = { state, renderDeviceList };

@@ -105,20 +105,29 @@
   <div id="welcomeModal" class="modal-backdrop">
     <form id="welcomeForm" class="modal">
       <h1><span class="logo">◆</span> Library 3D Navigator</h1>
-      <p class="muted">Real-time indoor navigation with GPS and barometric floor sensing.</p>
-      <label>Display name
-        <input id="nameInput" type="text" maxlength="24" minlength="2" required placeholder="e.g. Ted" />
-      </label>
-      <label>Sensor device ID <span class="muted">(printed on your ESP8266 tag)</span>
-        <input id="deviceInput" type="text" placeholder="NAV-001" pattern="[A-Za-z0-9\-]*" />
-      </label>
-      <label class="row"><input id="blindToggle" type="checkbox" />
-        Blind / low-vision mode (voice-first interface)</label>
-      <label class="row"><input id="accessibleToggle" type="checkbox" />
-        Step-free routes only (elevator instead of stairs)</label>
-      <p id="soloNote" class="muted" hidden>
-        Supabase is not configured - running in solo mode (friends disabled).</p>
-      <button id="startBtn" type="submit">Start navigating</button>
+      <div id="stepProfile">
+        <p class="muted">Real-time indoor navigation with GPS and barometric floor sensing.</p>
+        <label>Display name
+          <input id="nameInput" type="text" maxlength="24" minlength="2" required placeholder="e.g. Ted" />
+        </label>
+        <label class="row"><input id="blindToggle" type="checkbox" />
+          Blind / low-vision mode (voice-first interface)</label>
+        <label class="row"><input id="accessibleToggle" type="checkbox" />
+          Step-free routes only (elevator instead of stairs)</label>
+        <p id="soloNote" class="muted" hidden>
+          Supabase is not configured - running in solo mode (friends disabled).</p>
+      </div>
+      <div id="stepDevice" hidden>
+        <p class="muted">Pick your altitude sensor. Nearby powered-on units appear
+          automatically, strongest signal first (up to 5). Match the ID printed
+          on the device you are holding.</p>
+        <div id="deviceList" aria-label="Available sensors" role="listbox">
+          <div class="dev-empty"><div class="spinner"></div>Searching for nearby sensors…</div>
+        </div>
+        <button type="button" id="btnSkipDevice" class="ghost">
+          Continue without a sensor (GPS only, no floor detection)</button>
+      </div>
+      <button id="startBtn" type="submit">Continue</button>
     </form>
   </div>
 
