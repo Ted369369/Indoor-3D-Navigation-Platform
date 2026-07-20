@@ -252,6 +252,30 @@ button { font-family: var(--font); cursor: pointer; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---------------- positioning mode choice ---------------- */
+.mode-switch { display: flex; flex-direction: column; gap: 8px; }
+.mode-card {
+  text-align: left; background: var(--bg1); border: 1px solid var(--line);
+  border-radius: 12px; padding: 13px 14px; color: var(--text);
+  display: flex; flex-direction: column; gap: 3px; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.mode-card:hover { border-color: var(--accent); }
+.mode-card.selected {
+  border-color: var(--accent); background: rgba(56, 225, 198, 0.09);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.mode-card b { font-size: 14px; font-weight: 600; }
+.mode-card span { font-size: 12px; color: var(--muted); }
+
+.myfloor {
+  background: var(--panel); border: 1px solid var(--accent);
+  color: var(--accent); border-radius: 999px; padding: 6px 10px;
+  font-size: 12px; font-weight: 600; font-family: var(--font);
+  backdrop-filter: blur(12px); cursor: pointer;
+}
+body.blind .myfloor { font-size: 16px; padding: 10px 14px; }
+
 /* ---------------- sensor discovery picker ---------------- */
 #deviceList {
   display: flex; flex-direction: column; gap: 8px;

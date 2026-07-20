@@ -15,6 +15,7 @@ const DEFAULT_START = { floor: 2, x: 25, y: 19 }; // 2F escalator hall (entrance
 
 const state = {
   uid: null, name: "", deviceId: "", blind: false, accessible: false,
+  mode: "esp", myFloor: "2", // positioning mode: "esp" (sensor+GPS) | "gps" (GPS only)
   pos: null, route: null, routeTarget: null,
   friends: new Map(), // uid -> {name, online, pos, subscribed}
   admitted: true,
@@ -35,6 +36,8 @@ async function boot() {
   const prefs = JSON.parse(localStorage.getItem("libnav.prefs") || "{}");
   $("nameInput").value = prefs.name || "";
   state.lastDeviceId = prefs.deviceId || ""; // preselect hint only - user still confirms
+  state.mode = prefs.mode === "gps" ? "gps" : "esp";
+  state.myFloor = ["2", "4", "5"].includes(prefs.myFloor) ? prefs.myFloor : "2";
   $("blindToggle").checked = !!prefs.blind;
   $("accessibleToggle").checked = !!prefs.accessible;
   if (!social.enabled) $("soloNote").hidden = false;
@@ -58,7 +61,7 @@ async function boot() {
         $("stepProfile").hidden = true;
         $("stepDevice").hidden = false;
         btn.textContent = "Start navigating";
-        btn.disabled = !state.deviceId;
+        setPositionMode(state.mode);
         renderDeviceList();
       } catch (err) {
         toast(err.message, "error");
@@ -66,14 +69,25 @@ async function boot() {
         btn.textContent = "Continue";
       }
     } else {
-      if (!state.deviceId) return;
+      if (state.mode === "esp" && !state.deviceId) return;
       finalizeStart();
     }
   });
-  $("btnSkipDevice").addEventListener("click", () => {
-    state.deviceId = "";
-    finalizeStart();
-  });
+  $("modeEsp").addEventListener("click", () => setPositionMode("esp"));
+  $("modeGps").addEventListener("click", () => setPositionMode("gps"));
+}
+
+/** Switch between "esp" (sensor + GPS) and "gps" (GPS only, manual floor). */
+function setPositionMode(mode) {
+  state.mode = mode;
+  const esp = mode === "esp";
+  $("modeEsp").classList.toggle("selected", esp);
+  $("modeEsp").setAttribute("aria-checked", esp);
+  $("modeGps").classList.toggle("selected", !esp);
+  $("modeGps").setAttribute("aria-checked", !esp);
+  $("espPickWrap").hidden = !esp;
+  if (!esp) state.deviceId = "";
+  $("startBtn").disabled = esp && !state.deviceId;
 }
 
 /* ------------------------- sensor discovery picker ---------------------- */
@@ -169,6 +183,7 @@ async function startCore(opts) {
   });
   bus.client.on("connect", () => {
     publishPairing(); // re-assert (or clear) the claim on every (re)connect
+    publishFloor();
     const anchors = JSON.parse(localStorage.getItem("libnav.anchors") || "null");
     if (anchors) bus.publish("libnav/site/anchors", anchors, { retain: true, qos: 1 });
   });
@@ -210,22 +225,27 @@ async function startCore(opts) {
   await refreshFriends();
 }
 
-/** Called once the user has explicitly chosen (or skipped) a sensor. */
+/** Called once the user has explicitly chosen a mode (and sensor, if any). */
 function finalizeStart() {
   localStorage.setItem("libnav.prefs", JSON.stringify({
     name: state.name, blind: state.blind, accessible: state.accessible,
-    deviceId: state.deviceId || "",
+    deviceId: state.deviceId || "", mode: state.mode, myFloor: state.myFloor,
     uid: JSON.parse(localStorage.getItem("libnav.prefs") || "{}").uid,
   }));
   publishPairing();
+  publishFloor();
   if (social.enabled && state.deviceId) {
     social.registerDevice(state.deviceId).catch(() => {});
   }
   $("welcomeModal").hidden = true;
 
-  const sensorNote = state.deviceId
-    ? `Sensor ${state.deviceId} is paired with your GPS.`
-    : "No sensor paired - floor detection is unavailable.";
+  const gpsOnly = state.mode === "gps";
+  $("myFloorSel").hidden = !gpsOnly;
+  if (gpsOnly) $("myFloorSel").value = state.myFloor;
+
+  const sensorNote = gpsOnly
+    ? `GPS-only mode - tell me your floor with the "I'm on" selector in the top bar.`
+    : `Sensor ${state.deviceId} is paired with your GPS.`;
   chatSystem(
     `Welcome, ${state.name}. ${sensorNote} Ask me for a book subject ` +
     `("C language", "Qing dynasty history"), a place ("somewhere to study", ` +
@@ -233,7 +253,9 @@ function finalizeStart() {
   );
   speaker.speak(
     `Welcome to the library navigator, ${state.name}. ` +
-    (state.deviceId ? `Sensor ${state.deviceId} paired. ` : "") +
+    (gpsOnly
+      ? `G P S only mode. You are set to floor ${state.myFloor}. `
+      : `Sensor ${state.deviceId} paired. `) +
     (state.blind ? "Voice guidance is on. Type or dictate where you want to go." : "")
   , { interrupt: true });
 }
@@ -244,6 +266,17 @@ function publishPairing() {
   const topic = `libnav/user/${state.uid}/pair`;
   if (state.deviceId) {
     bus.publish(topic, { device: state.deviceId }, { retain: true, qos: 1 });
+  } else {
+    bus.publish(topic, "", { retain: true, qos: 1 });
+  }
+}
+
+/** Retained manual floor for GPS-only mode; empty = sensor decides. */
+function publishFloor() {
+  if (!state.uid) return;
+  const topic = `libnav/user/${state.uid}/floor`;
+  if (state.mode === "gps") {
+    bus.publish(topic, { floor: +state.myFloor }, { retain: true, qos: 1 });
   } else {
     bus.publish(topic, "", { retain: true, qos: 1 });
   }
@@ -290,12 +323,12 @@ function onControl(msg) {
     publishPairing();
     toast(why, "warn");
     speaker.speak(`Pairing failed. ${why}. Please pick another sensor.`);
-    // reopen the picker so the user chooses a different unit
+    // reopen the picker so the user chooses a different unit (or GPS-only)
     $("stepProfile").hidden = true;
     $("stepDevice").hidden = false;
     $("startBtn").textContent = "Start navigating";
-    $("startBtn").disabled = true;
     $("welcomeModal").hidden = false;
+    setPositionMode("esp");
     renderDeviceList();
   }
 }
@@ -523,6 +556,15 @@ function goToFriend(fuid) {
 function wireUi() {
   $("chatForm").addEventListener("submit", (e) => { e.preventDefault(); submitChat(); });
 
+  $("myFloorSel").addEventListener("change", () => {
+    state.myFloor = $("myFloorSel").value;
+    publishFloor();
+    const prefs = JSON.parse(localStorage.getItem("libnav.prefs") || "{}");
+    localStorage.setItem("libnav.prefs", JSON.stringify({ ...prefs, myFloor: state.myFloor }));
+    toast(`Your floor is set to ${state.myFloor}F`, "ok");
+    speaker.speak(`Floor set to ${state.myFloor}.`);
+  });
+
   $("chatInput").addEventListener("input", () => {
     const sugg = intent.suggest($("chatInput").value);
     const box = $("suggestions");
@@ -645,6 +687,11 @@ function updateGpsDot(acc) {
 
 function updateSensorDot() {
   const dot = $("connSensor");
+  if (state.mode === "gps") {
+    dot.className = "dot";
+    dot.title = "GPS-only mode - floor set manually";
+    return;
+  }
   if (!state.deviceId) { dot.className = "dot"; dot.title = "No sensor paired"; return; }
   const age = Date.now() - state.sensorLastSeen;
   const cls = age < 5000 ? "ok" : age < 15000 ? "warn" : "err";

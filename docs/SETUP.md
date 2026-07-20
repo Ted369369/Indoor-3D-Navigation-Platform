@@ -104,13 +104,18 @@ Stop it before real use; it frees its slots immediately on exit.
    geolocation on plain HTTP (localhost is exempt for development).
    Local preview: `python -m http.server 8123 --directory web`.
 3. First launch on a phone: enter a display name (enable blind mode or
-   step-free routing if needed) and grant the location permission. The app
-   then **scans for nearby powered-on sensors** and lists up to 5, strongest
-   signal first, with live status (Available / In use / Offline). Tap the
-   unit whose printed ID you are holding — pairing is always an explicit
-   choice, and a unit already claimed by another visitor cannot be selected.
-   From then on that ESP8266's pressure stream and your phone's GPS are fused
-   as one signal pair.
+   step-free routing if needed), grant the location permission, then choose a
+   **positioning mode**:
+   - **ESP sensor + phone GPS** — the app scans for nearby powered-on sensors
+     and lists up to 5, strongest signal first, with live status (Available /
+     In use / Offline). Tap the unit whose printed ID you are holding —
+     pairing is always an explicit choice, and a unit already claimed by
+     another visitor cannot be selected. That ESP8266's pressure stream and
+     your phone's GPS are then fused as one signal pair with automatic floor
+     detection.
+   - **Phone GPS only** — no hardware at all. Horizontal position comes from
+     GPS; the floor is whatever you pick in the "I'm on …" selector that
+     appears in the top bar (remember to change it when you take the stairs).
 
 ## 6. Geo calibration (once, 5 min)
 
