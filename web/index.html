@@ -51,6 +51,11 @@
       <span class="logo">◆</span>
       <span class="brand-text">Library<b>Nav</b></span>
       <span id="floorNow" class="floor-now">—</span>
+      <select id="myFloorSel" class="myfloor" hidden aria-label="Set the floor you are on">
+        <option value="2">I'm on 2F</option>
+        <option value="4">I'm on 4F</option>
+        <option value="5">I'm on 5F</option>
+      </select>
     </div>
     <nav id="floorChips" aria-label="Floor filter">
       <button class="fchip active" data-floor="all">All</button>
@@ -138,14 +143,24 @@
           Supabase is not configured - running in solo mode (friends disabled).</p>
       </div>
       <div id="stepDevice" hidden>
-        <p class="muted">Pick your altitude sensor. Nearby powered-on units appear
-          automatically, strongest signal first (up to 5). Match the ID printed
-          on the device you are holding.</p>
-        <div id="deviceList" aria-label="Available sensors" role="listbox">
-          <div class="dev-empty"><div class="spinner"></div>Searching for nearby sensors…</div>
+        <p class="muted">How do you want to be positioned?</p>
+        <div class="mode-switch" role="radiogroup" aria-label="Positioning mode">
+          <button type="button" id="modeEsp" class="mode-card selected" role="radio" aria-checked="true">
+            <b>📡 ESP sensor + phone GPS</b>
+            <span>Automatic floor detection — pick a nearby unit below</span>
+          </button>
+          <button type="button" id="modeGps" class="mode-card" role="radio" aria-checked="false">
+            <b>📍 Phone GPS only</b>
+            <span>No hardware needed — you set your floor manually</span>
+          </button>
         </div>
-        <button type="button" id="btnSkipDevice" class="ghost">
-          Continue without a sensor (GPS only, no floor detection)</button>
+        <div id="espPickWrap">
+          <p class="muted">Nearby powered-on units appear automatically, strongest
+            signal first (up to 5). Match the ID printed on the device you hold.</p>
+          <div id="deviceList" aria-label="Available sensors" role="listbox">
+            <div class="dev-empty"><div class="spinner"></div>Searching for nearby sensors…</div>
+          </div>
+        </div>
       </div>
       <button id="startBtn" type="submit">Continue</button>
     </form>

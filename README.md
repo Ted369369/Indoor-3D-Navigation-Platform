@@ -29,7 +29,9 @@ concurrency cap.
 Pairing is discovery-based: powered-on ESP units near you are listed live in
 the app (up to 5, strongest signal first, with availability status) and the
 visitor explicitly taps the unit they are holding — no IDs to type, and a
-unit in use by someone else cannot be taken.
+unit in use by someone else cannot be taken. A **GPS-only mode** needs no
+hardware at all: horizontal position from the phone, floor chosen manually
+from a top-bar selector.
 
 Quick start: read [docs/SETUP.md](docs/SETUP.md) — broker, Supabase, firmware
 flashing, engine, and web deployment in ~45 minutes.

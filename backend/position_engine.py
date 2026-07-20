@@ -238,6 +238,7 @@ class UserState:
     last_kf_time: float = 0.0
     floor: str | None = None
     floor_votes: list = field(default_factory=list)
+    manual_floor: str | None = None   # GPS-only mode: floor chosen by the user
     admitted: bool = False
     queued_at: float = 0.0        # when the user (re)became active - FIFO fairness
     notified: str = ""            # last control state sent ("admit"/"reject")
@@ -292,6 +293,7 @@ class Engine:
             ("libnav/dev/+/status", 1),
             ("libnav/user/+/gps", 0),
             ("libnav/user/+/pair", 1),
+            ("libnav/user/+/floor", 1),
             ("libnav/user/+/presence", 1),
             ("libnav/site/anchors", 1),
         ])
@@ -308,6 +310,8 @@ class Engine:
                 self.handle_gps(parts[2], json.loads(msg.payload))
             elif parts[1] == "user" and parts[3] == "pair":
                 self.handle_pair(parts[2], msg.payload)
+            elif parts[1] == "user" and parts[3] == "floor":
+                self.handle_floor(parts[2], msg.payload)
             elif parts[1] == "user" and parts[3] == "presence":
                 self.handle_presence(parts[2], msg.payload.decode())
             elif parts[1] == "site" and parts[2] == "anchors":
@@ -395,6 +399,22 @@ class Engine:
             self.geo.set_anchors(data["origin"], data["xAxis"])
         except (KeyError, TypeError) as exc:
             log.warning("ignored bad anchors payload: %s", exc)
+
+    def handle_floor(self, uid: str, payload: bytes):
+        """GPS-only mode: the user states which floor they are on (retained;
+        empty payload returns control to the barometric sensor)."""
+        floor = None
+        if payload:
+            try:
+                candidate = str(json.loads(payload).get("floor", ""))
+                if candidate in self.map.floor_z:
+                    floor = candidate
+            except json.JSONDecodeError:
+                pass
+        with self.lock:
+            user = self.users.setdefault(uid, UserState(uid))
+            user.manual_floor = floor
+        log.info("user %s manual floor -> %s", uid, floor or "(auto)")
 
     def handle_presence(self, uid: str, status: str):
         """Web-client LWT: an 'offline' releases the slot immediately instead
@@ -559,8 +579,11 @@ class Engine:
                             ):
                                 user.floor = vote
                                 log.info("user %s now on floor %s", user.uid, vote)
+                # floor precedence: fresh sensor > user-set manual > entrance
+                if not pressure_ok and user.manual_floor:
+                    user.floor = user.manual_floor
                 if user.floor is None:
-                    user.floor = self.map.levels[0]  # entrance floor until sensor speaks
+                    user.floor = self.map.levels[0]
 
                 # ---- snap to walkable graph
                 sx, sy, dist = self.map.snap(user.floor, x, y)
@@ -575,6 +598,8 @@ class Engine:
                     "q": {
                         "gpsAcc": round(user.gps_acc, 1),
                         "pressureOk": pressure_ok,
+                        "mode": "sensor" if pressure_ok
+                                else ("manual" if user.manual_floor else "default"),
                         "rssi": dev.rssi if dev else None,
                         "snapDist": round(dist, 1),
                     },
