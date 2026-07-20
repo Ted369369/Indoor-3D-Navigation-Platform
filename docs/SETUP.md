@@ -68,8 +68,9 @@ Wiring: `VIN→3V3  GND→GND  SCL→D1(GPIO5)  SDA→D2(GPIO4)`
 4. Flash at 115200 baud; the serial monitor shows Wi-Fi, NTP, and MQTT status.
    The LED blinks briefly on every publish (2 Hz).
 5. Place `NAV-REF` anywhere on **floor 2**, powered permanently (USB adapter).
-   Label each user unit with its `DEVICE_ID` so visitors can type it during
-   pairing (or print a QR code of the ID).
+   Label each user unit with its `DEVICE_ID`: powered-on units are discovered
+   automatically and listed in the app's pairing picker, and the label lets a
+   visitor match the physical unit in their hand to the on-screen entry.
 
 ## 4. Position engine (5 min)
 
@@ -87,14 +88,12 @@ Expected log: `mqtt connected`, `map model loaded`, then per-user admissions
 and floor changes. The engine enforces `MAX_ACTIVE_USERS=5`; a sixth phone
 sees the queue overlay until a slot frees.
 
-### Test without hardware
+### Optional: development test without hardware
 
-```bash
-python simulator.py --users 5
-```
-
-simulates the reference node plus five visitors walking loops through floors
-2 → 4 → 5. Watch the engine log, or add the simulated users as friends.
+Not part of the real deployment — only for developing on a desk with no ESPs:
+`python simulator.py --users 2` fakes the reference node plus visitors walking
+floors 2 → 4 → 5 (their `SIM-xxx` units also show up in the pairing picker).
+Stop it before real use; it frees its slots immediately on exit.
 
 ## 5. Web app (10 min)
 
@@ -104,9 +103,14 @@ simulates the reference node plus five visitors walking loops through floors
    Netlify, Vercel, Cloudflare Pages. HTTPS is mandatory: browsers refuse
    geolocation on plain HTTP (localhost is exempt for development).
    Local preview: `python -m http.server 8123 --directory web`.
-3. First launch on a phone: enter a display name, the sensor ID from the
-   device tag, and (if needed) enable blind mode or step-free routing. Grant
-   the location permission when prompted.
+3. First launch on a phone: enter a display name (enable blind mode or
+   step-free routing if needed) and grant the location permission. The app
+   then **scans for nearby powered-on sensors** and lists up to 5, strongest
+   signal first, with live status (Available / In use / Offline). Tap the
+   unit whose printed ID you are holding — pairing is always an explicit
+   choice, and a unit already claimed by another visitor cannot be selected.
+   From then on that ESP8266's pressure stream and your phone's GPS are fused
+   as one signal pair.
 
 ## 6. Geo calibration (once, 5 min)
 

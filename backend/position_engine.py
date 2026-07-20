@@ -225,6 +225,7 @@ class DeviceState:
     seq: int = 0
     last_seen: float = 0.0
     online: bool = False
+    role: str = "user"
 
 
 @dataclass
@@ -258,6 +259,8 @@ class Engine:
         self.ref_temp = 20.0
         self.ref_last = 0.0
         self.ref_floor_z = 0.0                    # reference node sits on floor 2 (z=0)
+        self._dir_key = None                      # last published directory fingerprint
+        self._dir_last_pub = 0.0
         self.lock = threading.Lock()
         self.running = True
 
@@ -324,6 +327,7 @@ class Engine:
             dev.seq = int(data.get("seq", 0))
             dev.last_seen = now
             dev.online = True
+            dev.role = data.get("role", "user")
             if data.get("role") == "reference":
                 # EMA smooths sensor noise while tracking weather drift
                 if self.ref_pressure is None:
@@ -363,9 +367,27 @@ class Engine:
                 device_id = json.loads(payload).get("device") or None
             except json.JSONDecodeError:
                 pass
+        now = time.time()
         with self.lock:
             user = self.users.setdefault(uid, UserState(uid))
-            user.device_id = device_id
+            if device_id:
+                dev = self.devices.get(device_id)
+                if dev and dev.role == "reference":
+                    self.notify(uid, "pair_denied", reason="reference", device=device_id)
+                    return
+                owner = next(
+                    (u for u in self.users.values()
+                     if u.uid != uid and u.device_id == device_id and u.is_active(now)),
+                    None,
+                )
+                if owner:
+                    self.notify(uid, "pair_denied", reason="in-use", device=device_id)
+                    log.info("user %s denied pairing %s (held by %s)", uid, device_id, owner.uid)
+                    return
+                user.device_id = device_id
+                self.notify(uid, "pair_ok", device=device_id)
+            else:
+                user.device_id = None
         log.info("user %s paired with %s", uid, device_id or "(nothing)")
 
     def handle_anchors(self, data: dict):
@@ -424,14 +446,53 @@ class Engine:
                     if s.last_gps > 0 and now - s.last_gps > 900]:
             del self.users[uid]
 
-    def notify(self, uid: str, action: str, reason: str = "", slots: int = 0, active: int = 0):
+    def notify(self, uid: str, action: str, reason: str = "", slots: int = 0,
+               active: int = 0, device: str = ""):
         self.client.publish(
             f"libnav/user/{uid}/control",
             json.dumps({"action": action, "reason": reason, "slots": slots,
-                        "active": active, "max": MAX_ACTIVE_USERS, "ts": int(time.time() * 1000)}),
+                        "active": active, "max": MAX_ACTIVE_USERS, "device": device,
+                        "ts": int(time.time() * 1000)}),
             qos=1,
         )
-        log.info("user %s -> %s %s (active=%d/%d)", uid, action, reason, active, MAX_ACTIVE_USERS)
+        log.info("user %s -> %s %s%s (active=%d/%d)", uid, action, reason,
+                 f" [{device}]" if device else "", active, MAX_ACTIVE_USERS)
+
+    # ------------------------------------------------------------ discovery
+    def publish_directory(self, now: float):
+        """Retained device directory the web app uses for 'scan nearby
+        sensors': online state, signal strength, and who holds each unit.
+        Republished only when something meaningful changes (or every 10 s)."""
+        claims = {
+            u.device_id: u.uid
+            for u in self.users.values()
+            if u.device_id and u.is_active(now)
+        }
+        entries = []
+        for dev_id in sorted(self.devices):
+            dev = self.devices[dev_id]
+            online = dev.online and (now - dev.last_seen) < PRESSURE_STALE_S
+            entries.append({
+                "id": dev_id,
+                "role": dev.role,
+                "online": online,
+                "rssi": dev.rssi if online else None,
+                "ageS": int(now - dev.last_seen) if dev.last_seen else None,
+                "pairedBy": claims.get(dev_id),
+            })
+        key = tuple(
+            (e["id"], e["role"], e["online"], e["pairedBy"],
+             (e["rssi"] or 0) // 5)
+            for e in entries
+        )
+        if key != self._dir_key or now - self._dir_last_pub > 10:
+            self._dir_key = key
+            self._dir_last_pub = now
+            self.client.publish(
+                "libnav/directory",
+                json.dumps({"devices": entries, "ts": int(now * 1000)}),
+                qos=0, retain=True,
+            )
 
     def log_session_start(self, user: UserState):
         if not self.supa:
@@ -469,6 +530,7 @@ class Engine:
         now = time.time()
         with self.lock:
             self.review_capacity()
+            self.publish_directory(now)
             for user in list(self.users.values()):
                 if not user.is_active(now):
                     continue

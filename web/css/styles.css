@@ -247,6 +247,40 @@ button { font-family: var(--font); cursor: pointer; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---------------- sensor discovery picker ---------------- */
+#deviceList {
+  display: flex; flex-direction: column; gap: 8px;
+  max-height: 46vh; overflow-y: auto; scrollbar-width: thin;
+}
+.dev-row {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--bg1); border: 1px solid var(--line);
+  border-radius: 12px; padding: 13px 14px; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.dev-row:hover { border-color: var(--accent); }
+.dev-row.selected {
+  border-color: var(--accent); background: rgba(56, 225, 198, 0.09);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.dev-row.suggested { border-style: dashed; border-color: var(--amber); }
+.dev-row.disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+.dev-id { font-weight: 600; font-size: 15px; letter-spacing: 0.02em; }
+.dev-status { margin-left: auto; font-size: 12px; color: var(--muted); }
+.dev-row.selected .dev-status { color: var(--accent); font-weight: 600; }
+.sig { display: flex; gap: 2.5px; align-items: flex-end; height: 15px; }
+.sig i { width: 3.5px; border-radius: 1px; background: #414d6e; display: block; }
+.sig i:nth-child(1) { height: 5px; }
+.sig i:nth-child(2) { height: 8px; }
+.sig i:nth-child(3) { height: 11px; }
+.sig i:nth-child(4) { height: 15px; }
+.sig i.on { background: var(--accent); }
+.dev-empty {
+  display: flex; align-items: center; gap: 12px;
+  color: var(--muted); font-size: 13px; padding: 12px 4px;
+}
+.dev-empty .spinner { width: 20px; height: 20px; border-width: 2px; margin: 0; }
+
 /* ---------------- toast ---------------- */
 #toast {
   position: fixed; bottom: calc(180px + env(safe-area-inset-bottom));
