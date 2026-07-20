@@ -9,6 +9,26 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/styles.css" />
+  <script>
+    // Opening index.html by double-click (file://) cannot work: browsers block
+    // ES modules and fetch() from local files. Show instructions instead of a
+    // dead page. This classic inline script is the only JS file:// still runs.
+    if (location.protocol === "file:") {
+      addEventListener("DOMContentLoaded", function () {
+        document.body.innerHTML =
+          '<div style="max-width:560px;margin:12vh auto;padding:28px;font-family:Inter,system-ui,sans-serif;' +
+          'background:#161c30;border:1px solid rgba(150,170,220,.25);border-radius:20px;color:#e8edf8;line-height:1.7">' +
+          '<h1 style="font-size:20px;margin-bottom:12px">⚠ This app must be served over HTTP</h1>' +
+          '<p style="color:#93a0bd;font-size:14px">You opened the file directly, so the browser blocks its ' +
+          'scripts and data (CORS). Start a local server from the project folder instead:</p>' +
+          '<pre style="background:#0b0e16;border-radius:10px;padding:14px;margin:14px 0;font-size:13px;overflow-x:auto">' +
+          'python -m http.server 8123 --directory web</pre>' +
+          '<p style="color:#93a0bd;font-size:14px">then open <a href="http://localhost:8123" ' +
+          'style="color:#38e1c6">http://localhost:8123</a>.<br>For phones, deploy the web folder to an HTTPS host ' +
+          '(GPS requires it) - see docs/SETUP.md.</p></div>';
+      });
+    }
+  </script>
   <script src="config.js"></script>
   <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>

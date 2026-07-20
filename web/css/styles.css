@@ -18,6 +18,11 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* The [hidden] attribute must always win, even over author display rules
+   (display:grid/flex on the same element silently overrides the browser's
+   built-in [hidden] { display:none } - this rule restores correct behavior). */
+[hidden] { display: none !important; }
+
 html, body {
   height: 100%;
   overflow: hidden;
