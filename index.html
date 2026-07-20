@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0e16" />
+  <meta name="description" content="Real-time 3D indoor navigation for the library - GPS + barometric floor sensing." />
+  <title>Library 3D Navigator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <script>
+    // Opening index.html by double-click (file://) cannot work: browsers block
+    // ES modules and fetch() from local files. Show instructions instead of a
+    // dead page. This classic inline script is the only JS file:// still runs.
+    if (location.protocol === "file:") {
+      addEventListener("DOMContentLoaded", function () {
+        document.body.innerHTML =
+          '<div style="max-width:560px;margin:12vh auto;padding:28px;font-family:Inter,system-ui,sans-serif;' +
+          'background:#161c30;border:1px solid rgba(150,170,220,.25);border-radius:20px;color:#e8edf8;line-height:1.7">' +
+          '<h1 style="font-size:20px;margin-bottom:12px">⚠ This app must be served over HTTP</h1>' +
+          '<p style="color:#93a0bd;font-size:14px">You opened the file directly, so the browser blocks its ' +
+          'scripts and data (CORS). Start a local server from the project folder instead:</p>' +
+          '<pre style="background:#0b0e16;border-radius:10px;padding:14px;margin:14px 0;font-size:13px;overflow-x:auto">' +
+          'python -m http.server 8123 --directory web</pre>' +
+          '<p style="color:#93a0bd;font-size:14px">then open <a href="http://localhost:8123" ' +
+          'style="color:#38e1c6">http://localhost:8123</a>.<br>For phones, deploy the web folder to an HTTPS host ' +
+          '(GPS requires it) - see docs/SETUP.md.</p></div>';
+      });
+    }
+  </script>
+  <script src="config.js"></script>
+  <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="scene" aria-hidden="true"></div>
+
+  <!-- top bar -->
+  <header id="topbar">
+    <div class="brand">
+      <span class="logo">◆</span>
+      <span class="brand-text">Library<b>Nav</b></span>
+      <span id="floorNow" class="floor-now">—</span>
+      <select id="myFloorSel" class="myfloor" hidden aria-label="Set the floor you are on">
+        <option value="2">I'm on 2F</option>
+        <option value="4">I'm on 4F</option>
+        <option value="5">I'm on 5F</option>
+      </select>
+    </div>
+    <nav id="floorChips" aria-label="Floor filter">
+      <button class="fchip active" data-floor="all">All</button>
+      <button class="fchip" data-floor="2">2F</button>
+      <button class="fchip" data-floor="4">4F</button>
+      <button class="fchip" data-floor="5">5F</button>
+      <button id="btnExplode" title="Exploded view" aria-label="Toggle exploded view">⇕</button>
+    </nav>
+    <div class="conn" role="status" aria-label="Connection quality">
+      <span id="connMqtt" class="dot" title="Server"></span>
+      <span id="connGps" class="dot" title="GPS"></span>
+      <span id="connSensor" class="dot" title="Altitude sensor"></span>
+      <span id="latency" class="latency"></span>
+    </div>
+  </header>
+
+  <!-- right-side action rail -->
+  <div id="rail">
+    <button id="btnVoice" class="rail-btn" title="Voice guidance" aria-pressed="false" aria-label="Toggle voice guidance">🔊</button>
+    <button id="btnMic" class="rail-btn" title="Dictate destination" aria-label="Dictate destination">🎤</button>
+    <button id="btnFriends" class="rail-btn" title="Friends" aria-label="Friends panel">
+      👥<span id="friendBadge" class="badge" hidden></span>
+    </button>
+    <button id="btnSettings" class="rail-btn" title="Calibration" aria-label="Calibration settings">⚙</button>
+  </div>
+
+  <!-- active route banner -->
+  <div id="routeBanner" class="route-banner" hidden>
+    <div class="route-info">
+      <span class="route-label">Navigating to</span>
+      <strong id="routeDest"></strong>
+      <span id="routeMeta" class="route-meta"></span>
+    </div>
+    <button id="btnEndRoute" aria-label="End navigation">✕</button>
+  </div>
+
+  <!-- chat -->
+  <section id="chatPanel" aria-label="Navigation assistant">
+    <div id="chatLog" role="log" aria-live="polite"></div>
+    <div id="suggestions"></div>
+    <div id="quickChips">
+      <button class="chip" data-q="self study">📖 Study spot</button>
+      <button class="chip" data-q="latest news">📰 Newspapers</button>
+      <button class="chip" data-q="restroom">🚻 Restroom</button>
+      <button class="chip" data-q="programming">💻 Programming</button>
+    </div>
+    <form id="chatForm" autocomplete="off">
+      <input id="chatInput" type="text" placeholder="Where to? Try “C language” or “I want to study”…"
+             aria-label="Destination or subject" />
+      <button type="submit" aria-label="Send">➤</button>
+    </form>
+  </section>
+
+  <!-- friends drawer -->
+  <aside id="friendsPanel" aria-label="Friends">
+    <header>
+      <h2>Friends</h2>
+      <button id="btnCloseFriends" aria-label="Close friends panel">✕</button>
+    </header>
+    <form id="friendSearchForm">
+      <input id="friendSearchInput" type="search" placeholder="Search users by name…" />
+      <button type="submit">Search</button>
+    </form>
+    <div id="friendSearchResults"></div>
+    <h3>Requests</h3>
+    <div id="friendRequests"><div class="fmeta pad">No pending requests.</div></div>
+    <h3>My friends</h3>
+    <div id="friendList"></div>
+  </aside>
+
+  <!-- welcome / pairing modal -->
+  <div id="welcomeModal" class="modal-backdrop">
+    <form id="welcomeForm" class="modal">
+      <h1><span class="logo">◆</span> Library 3D Navigator</h1>
+      <div id="stepProfile">
+        <p class="muted">Real-time indoor navigation with GPS and barometric floor sensing.</p>
+        <label>Display name
+          <input id="nameInput" type="text" maxlength="24" minlength="2" required placeholder="e.g. Ted" />
+        </label>
+        <label class="row"><input id="blindToggle" type="checkbox" />
+          Blind / low-vision mode (voice-first interface)</label>
+        <label class="row"><input id="accessibleToggle" type="checkbox" />
+          Step-free routes only (elevator instead of stairs)</label>
+        <p id="soloNote" class="muted" hidden>
+          Supabase is not configured - running in solo mode (friends disabled).</p>
+      </div>
+      <div id="stepDevice" hidden>
+        <p class="muted">How do you want to be positioned?</p>
+        <div class="mode-switch" role="radiogroup" aria-label="Positioning mode">
+          <button type="button" id="modeEsp" class="mode-card selected" role="radio" aria-checked="true">
+            <b>📡 ESP sensor + phone GPS</b>
+            <span>Automatic floor detection — pick a nearby unit below</span>
+          </button>
+          <button type="button" id="modeGps" class="mode-card" role="radio" aria-checked="false">
+            <b>📍 Phone GPS only</b>
+            <span>No hardware needed — you set your floor manually</span>
+          </button>
+        </div>
+        <div id="espPickWrap">
+          <p class="muted">Nearby powered-on units appear automatically, strongest
+            signal first (up to 5). Match the ID printed on the device you hold.</p>
+          <div id="deviceList" aria-label="Available sensors" role="listbox">
+            <div class="dev-empty"><div class="spinner"></div>Searching for nearby sensors…</div>
+          </div>
+        </div>
+      </div>
+      <button id="startBtn" type="submit">Continue</button>
+    </form>
+  </div>
+
+  <!-- calibration modal -->
+  <div id="settingsModal" class="modal-backdrop" hidden>
+    <form id="settingsForm" class="modal">
+      <h1>Geo calibration</h1>
+      <p class="muted">Map two building corners to GPS. Stand at each corner and tap
+        “Use my location”, or paste coordinates from Google Maps.</p>
+      <fieldset>
+        <legend>North-west corner (map origin)</legend>
+        <div class="pair">
+          <input id="originLat" type="number" step="any" placeholder="Latitude" required />
+          <input id="originLng" type="number" step="any" placeholder="Longitude" required />
+        </div>
+        <button type="button" id="btnUseHereOrigin" class="mini">Use my location</button>
+      </fieldset>
+      <fieldset>
+        <legend>North-east corner (50 m along the top edge)</legend>
+        <div class="pair">
+          <input id="xLat" type="number" step="any" placeholder="Latitude" required />
+          <input id="xLng" type="number" step="any" placeholder="Longitude" required />
+        </div>
+        <button type="button" id="btnUseHereX" class="mini">Use my location</button>
+      </fieldset>
+      <div class="row gap">
+        <button type="submit">Save anchors</button>
+        <button type="button" id="btnCloseSettings" class="ghost">Close</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- capacity overlay -->
+  <div id="capacityOverlay" class="modal-backdrop" hidden>
+    <div class="modal center">
+      <h1>All slots busy</h1>
+      <p class="muted" id="capacityText">The system supports 5 simultaneous devices.<br />
+        You are queued and will connect automatically when a slot frees up.</p>
+      <div class="spinner"></div>
+    </div>
+  </div>
+
+  <div id="announcer" class="sr-only" aria-live="assertive"></div>
+  <div id="toast" role="status"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
