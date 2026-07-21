@@ -166,6 +166,32 @@ button { font-family: var(--font); cursor: pointer; }
   width: 42px; height: 42px; border-radius: 50%; font-size: 16px;
 }
 
+.chat-head { display: flex; align-items: center; justify-content: space-between; }
+.chat-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted); padding-left: 4px;
+}
+#btnChatCollapse {
+  border: none; background: transparent; color: var(--muted);
+  width: 30px; height: 28px; border-radius: 8px; font-size: 20px; line-height: 1;
+}
+#btnChatCollapse:hover { background: rgba(255, 255, 255, 0.06); color: var(--text); }
+
+#btnChatOpen {
+  position: fixed; left: 12px; z-index: 22;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  width: 52px; height: 52px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--panel-solid);
+  box-shadow: var(--shadow); font-size: 22px; color: var(--text);
+}
+#btnChatOpen:active { transform: scale(0.92); }
+.chat-unread {
+  position: absolute; top: -2px; right: -2px;
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--bg0);
+}
+body.blind #btnChatOpen { width: 64px; height: 64px; font-size: 28px; }
+
 /* ---------------- friends drawer ---------------- */
 #friendsPanel {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 30;
