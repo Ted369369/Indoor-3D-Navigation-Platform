@@ -212,7 +212,10 @@ async function startCore(opts) {
 
   // ---- GPS
   gps = new GpsPublisher(bus, state.uid, CFG.gpsPublishHz);
-  gps.addEventListener("fix", (e) => updateGpsDot(e.detail.acc));
+  gps.addEventListener("fix", (e) => {
+    updateGpsDot(e.detail.acc);
+    showLocalGps(e.detail); // move the dot as you walk, engine or not
+  });
   gps.addEventListener("error", (e) => {
     updateGpsDot(null);
     toast(`GPS: ${e.detail}`, "warn");
@@ -284,6 +287,7 @@ function publishFloor() {
 
 /* ============================== positions =============================== */
 function onSelfPos(p) {
+  state.lastFusedAt = Date.now(); // engine is live -> local GPS fallback stands down
   state.pos = p;
   state.pressureOk = !!p.q?.pressureOk;
   scene.updateMarker(state.uid, p, { self: true });
@@ -294,6 +298,73 @@ function onSelfPos(p) {
     const result = guidance.update(p, off);
     if (result === "arrived") endRoute(true);
     updateRouteBanner(p);
+  }
+}
+
+/* ---- live GPS position (used when the fusion engine isn't supplying one) --
+ * On the deployed page with no engine running, this is what makes your dot
+ * appear and move as you walk. It mirrors the engine's lat/lng -> local-metre
+ * conversion. Until you calibrate (gear button), the frame is auto-anchored to
+ * wherever you first stood, so movement still shows even if it isn't yet
+ * aligned to the real building. */
+function makeGeo(anchors) {
+  const lat0 = anchors.origin.lat, lng0 = anchors.origin.lng;
+  const mLat = 111132.0;
+  const mLng = 111320.0 * Math.cos((lat0 * Math.PI) / 180);
+  const e = (anchors.xAxis.lng - lng0) * mLng;
+  const n = (anchors.xAxis.lat - lat0) * mLat;
+  const norm = Math.hypot(e, n) || 1;
+  const ux = [e / norm, n / norm];
+  const uy = [ux[1], -ux[0]];
+  return (lat, lng) => {
+    const de = (lng - lng0) * mLng;
+    const dn = (lat - lat0) * mLat;
+    return [de * ux[0] + dn * ux[1], de * uy[0] + dn * uy[1]];
+  };
+}
+
+function ensureGeo(fix) {
+  if (state.geo) return state.geo;
+  const saved = JSON.parse(localStorage.getItem("libnav.anchors") || "null");
+  if (saved) {
+    state.geo = makeGeo(saved);
+  } else {
+    // no calibration yet: anchor the local frame to the first fix so the dot
+    // sits at the map origin and walking is visible immediately
+    const mLng = 111320.0 * Math.cos((fix.lat * Math.PI) / 180);
+    state.geo = makeGeo({
+      origin: { lat: fix.lat, lng: fix.lng },
+      xAxis: { lat: fix.lat, lng: fix.lng + model.site.width / mLng },
+    });
+    toast("Showing your live GPS position. Use ⚙ to align it to the building.", "ok");
+  }
+  return state.geo;
+}
+
+function showLocalGps(fix) {
+  if (!state.uid || !scene) return;
+  // defer to the fusion engine whenever it is actively publishing
+  if (state.lastFusedAt && Date.now() - state.lastFusedAt < 6000) return;
+
+  const toLocal = ensureGeo(fix);
+  const W = model.site.width, D = model.site.depth;
+  let [x, y] = toLocal(fix.lat, fix.lng);
+  x = Math.max(-8, Math.min(W + 8, x));
+  y = Math.max(-8, Math.min(D + 8, y));
+  const floor = state.mode === "gps"
+    ? state.myFloor
+    : String(state.pos?.floor || state.myFloor || "2");
+
+  const pos = { x, y, floor: Number(floor), q: { gpsAcc: fix.acc, mode: "local-gps" } };
+  state.pos = pos;
+  scene.updateMarker(state.uid, pos, { self: true });
+  $("floorNow").textContent = `Floor ${floor}`;
+
+  if (guidance?.active && state.route) {
+    const off = Navigator.offRouteDistance(state.route, pos);
+    const r = guidance.update(pos, off);
+    if (r === "arrived") endRoute(true);
+    updateRouteBanner(pos);
   }
 }
 
@@ -457,8 +528,20 @@ function chatBubble(text, who) {
   div.textContent = text;
   $("chatLog").appendChild(div);
   $("chatLog").scrollTop = $("chatLog").scrollHeight;
+  // flag unread when a reply arrives while the panel is collapsed
+  if (who === "system" && $("chatPanel").hidden) {
+    $("chatUnread").hidden = false;
+  }
 }
 const chatSystem = (text) => chatBubble(text, "system");
+
+/** Hide the assistant to reveal the map, or bring it back. */
+function setChatCollapsed(collapsed) {
+  $("chatPanel").hidden = collapsed;
+  $("btnChatOpen").hidden = !collapsed;
+  if (!collapsed) $("chatUnread").hidden = true;
+  localStorage.setItem("libnav.chatCollapsed", JSON.stringify(collapsed));
+}
 
 /* ============================== friends ================================= */
 async function refreshFriends() {
@@ -563,6 +646,7 @@ function wireUi() {
     localStorage.setItem("libnav.prefs", JSON.stringify({ ...prefs, myFloor: state.myFloor }));
     toast(`Your floor is set to ${state.myFloor}F`, "ok");
     speaker.speak(`Floor set to ${state.myFloor}.`);
+    if (gps?.lastFix) showLocalGps(gps.lastFix); // move the dot to the new floor now
   });
 
   $("chatInput").addEventListener("input", () => {
@@ -583,6 +667,11 @@ function wireUi() {
     });
   });
 
+  // collapse / reopen the assistant so it doesn't cover the map
+  $("btnChatCollapse").addEventListener("click", () => setChatCollapsed(true));
+  $("btnChatOpen").addEventListener("click", () => setChatCollapsed(false));
+  setChatCollapsed(JSON.parse(localStorage.getItem("libnav.chatCollapsed") || "false"));
+
   document.querySelectorAll("#floorChips .fchip").forEach((chip) => {
     chip.addEventListener("click", () => {
       scene.setFloorFocus(chip.dataset.floor);
@@ -598,7 +687,11 @@ function wireUi() {
     speaker.enabled = !speaker.enabled;
     localStorage.setItem("libnav.voice", JSON.stringify(speaker.enabled));
     reflectVoiceButton();
-    speaker.speak("Voice guidance on.", { interrupt: true });
+    if (speaker.enabled) {
+      speaker.speak("Voice guidance on.", { interrupt: true });
+    } else {
+      speaker.stop(); // cut off whatever is currently being spoken
+    }
   });
   $("btnMic").addEventListener("click", () => listener.toggle());
 
@@ -655,6 +748,8 @@ function wireUi() {
     };
     localStorage.setItem("libnav.anchors", JSON.stringify(anchors));
     bus.publish("libnav/site/anchors", anchors, { retain: true, qos: 1 });
+    state.geo = null; // rebuild the local converter from the new calibration
+    if (gps?.lastFix) showLocalGps(gps.lastFix);
     $("settingsModal").hidden = true;
     toast("Geo anchors saved and broadcast to the engine", "ok");
   });
@@ -726,4 +821,6 @@ boot().catch((err) => {
 });
 
 // debug/testing handle (harmless in production)
-window.__nav = { state, renderDeviceList };
+window.__nav = { state, renderDeviceList, showLocalGps, setChatCollapsed,
+  markerCount: () => scene?.markers?.size ?? 0,
+  selfMarker: () => scene?.markers?.get(state.uid)?.target };
