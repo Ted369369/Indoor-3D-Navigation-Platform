@@ -94,6 +94,10 @@
 
   <!-- chat -->
   <section id="chatPanel" aria-label="Navigation assistant">
+    <div class="chat-head">
+      <span class="chat-title">Assistant</span>
+      <button id="btnChatCollapse" aria-label="Hide assistant" title="Hide assistant">⌄</button>
+    </div>
     <div id="chatLog" role="log" aria-live="polite"></div>
     <div id="suggestions"></div>
     <div id="quickChips">
@@ -108,6 +112,11 @@
       <button type="submit" aria-label="Send">➤</button>
     </form>
   </section>
+
+  <!-- floating button to reopen the assistant when collapsed -->
+  <button id="btnChatOpen" hidden aria-label="Show assistant" title="Show assistant">
+    💬<span id="chatUnread" class="chat-unread" hidden></span>
+  </button>
 
   <!-- friends drawer -->
   <aside id="friendsPanel" aria-label="Friends">
