@@ -197,28 +197,42 @@ export class MapScene {
   }
 
   _makeLabel(zone) {
+    // High-DPI canvas so text stays crisp when the camera zooms in.
     const short = zone.id.split("-")[1];
+    const S = 2; // supersample factor
+    const W = 512, H = 192;
     const cvs = document.createElement("canvas");
-    cvs.width = 512; cvs.height = 192;
+    cvs.width = W * S; cvs.height = H * S;
     const ctx = cvs.getContext("2d");
+    ctx.scale(S, S);
     ctx.textAlign = "center";
-    ctx.fillStyle = "rgba(10,12,20,0.55)";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "rgba(10,12,20,0.62)";
     roundRect(ctx, 96, 8, 320, 176, 28);
     ctx.fill();
     ctx.fillStyle = "#ffffff";
     ctx.font = "700 84px Inter, system-ui, sans-serif";
     ctx.fillText(short, 256, 92);
-    ctx.font = "400 34px Inter, system-ui, sans-serif";
-    ctx.fillStyle = "#c6d2f0";
+    ctx.font = "500 34px Inter, system-ui, sans-serif";
+    ctx.fillStyle = "#d6e0f5";
     const name = zone.name.length > 26 ? zone.name.slice(0, 25) + "…" : zone.name;
     ctx.fillText(name, 256, 148);
-    const tex = new THREE.CanvasTexture(cvs);
-    tex.anisotropy = 4;
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: tex, transparent: true, depthWrite: false,
+      map: this._crispTexture(cvs), transparent: true, depthWrite: false,
     }));
     sprite.scale.set(6.4, 2.4, 1);
     return sprite;
+  }
+
+  /** Canvas texture tuned for legible text: max anisotropy, no mip blur. */
+  _crispTexture(cvs) {
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    tex.minFilter = THREE.LinearFilter; // skip mipmaps -> no softening
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    return tex;
   }
 
   /* ------------------------------------------- layout & focus ------------ */
@@ -240,22 +254,56 @@ export class MapScene {
   setExploded(on) {
     this.exploded = on;
     this._applyFloorLayout();
+    this._applyVisibility();
   }
 
   setFloorFocus(level) {
-    this.focusLevel = level; // "all" or "2"/"4"/"5"
+    this.focusLevel = level; // "all" or a level like "3"
+    this._applyVisibility();
+  }
+
+  /** Restrict the view to the floors an active route crosses (Set), or null. */
+  setRouteFloors(floors) {
+    this.routeFloors = floors && floors.size ? floors : null;
+    this._applyVisibility();
+  }
+
+  /** Which floors are currently shown: a Set of levels, or null = every floor. */
+  _visibleSet() {
+    if (this.routeFloors) {
+      // during navigation, show only the floors the route passes through;
+      // a manual floor pick narrows further if it is on the route
+      if (this.focusLevel !== "all" && this.routeFloors.has(this.focusLevel)) {
+        return new Set([this.focusLevel]);
+      }
+      return this.routeFloors;
+    }
+    return this.focusLevel === "all" ? null : new Set([this.focusLevel]);
+  }
+
+  _floorVisible(level) {
+    const set = this._visibleSet();
+    return !set || set.has(String(level));
+  }
+
+  /** Hide floors outside the visible set; raise transparency while navigating. */
+  _applyVisibility() {
+    const set = this._visibleSet();
+    const opacityScale = this.routeFloors ? 0.45 : 1.0; // see the path through the slabs
     for (const [lvl, group] of Object.entries(this.floorGroups)) {
-      const focused = level === "all" || lvl === level;
-      group.traverse((obj) => {
-        if (obj.userData?.isLabel) obj.visible = focused;
-        const mat = obj.material;
-        if (mat && obj.userData?.baseOpacity !== undefined) {
-          mat.opacity = obj.userData.baseOpacity * (focused ? 1 : 0.07);
-        }
-      });
+      const show = !set || set.has(lvl);
+      group.visible = show;
+      if (show) {
+        group.traverse((obj) => {
+          const mat = obj.material;
+          if (mat && obj.userData?.baseOpacity !== undefined) {
+            mat.opacity = obj.userData.baseOpacity * opacityScale;
+          }
+        });
+      }
     }
     for (const m of this.markers.values()) {
-      if (m.pos) m.group.visible = level === "all" || String(m.pos.floor) === level;
+      if (m.pos) m.group.visible = !set || set.has(String(m.pos.floor));
     }
   }
 
@@ -298,9 +346,7 @@ export class MapScene {
     }
     m.pos = pos;
     m.target.copy(this._markerWorld(pos));
-    if (!m.group.visible && (this.focusLevel === "all" || String(pos.floor) === this.focusLevel)) {
-      m.group.visible = true;
-    }
+    m.group.visible = this._floorVisible(pos.floor);
   }
 
   removeMarker(uid) {
@@ -315,6 +361,7 @@ export class MapScene {
   showPath(points) {
     this.activeRoutePoints = points;
     this._buildPathMesh(points);
+    this.setRouteFloors(new Set(points.map((p) => String(p.floor))));
   }
 
   _buildPathMesh(points) {
@@ -379,7 +426,10 @@ export class MapScene {
     this.pathPulses = [];
     this.pathCurve = null;
     this.endRing = null;
-    if (!keepRef) this.activeRoutePoints = null;
+    if (!keepRef) {
+      this.activeRoutePoints = null;
+      this.setRouteFloors(null); // reveal all floors again (respecting focus)
+    }
   }
 
   /* ------------------------------------------------ highlight ------------ */
@@ -480,9 +530,11 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 function makeNameTag(name) {
+  const S = 2;
   const cvs = document.createElement("canvas");
-  cvs.width = 384; cvs.height = 96;
+  cvs.width = 384 * S; cvs.height = 96 * S;
   const ctx = cvs.getContext("2d");
+  ctx.scale(S, S);
   ctx.fillStyle = "rgba(240,168,64,0.92)";
   roundRect(ctx, 60, 10, 264, 76, 34);
   ctx.fill();
@@ -490,8 +542,12 @@ function makeNameTag(name) {
   ctx.font = "600 44px Inter, system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.fillText(name.slice(0, 12), 192, 62);
+  const tex = new THREE.CanvasTexture(cvs);
+  tex.anisotropy = 8;
+  tex.minFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: new THREE.CanvasTexture(cvs), transparent: true, depthWrite: false,
+    map: tex, transparent: true, depthWrite: false,
   }));
   sprite.scale.set(4.2, 1.05, 1);
   return sprite;
