@@ -139,10 +139,17 @@
   <div id="welcomeModal" class="modal-backdrop">
     <form id="welcomeForm" class="modal">
       <h1><span class="logo">◆</span> Library 3D Navigator</h1>
-      <div id="stepProfile">
+      <div id="stepLibrary">
+        <p class="muted">Choose your library.</p>
+        <div id="libraryList" role="listbox" aria-label="Libraries">
+          <div class="dev-empty"><div class="spinner"></div>Loading libraries…</div>
+        </div>
+        <p class="muted">More libraries are on the way.</p>
+      </div>
+      <div id="stepProfile" hidden>
         <p class="muted">Real-time indoor navigation with GPS and barometric floor sensing.</p>
         <label>Display name
-          <input id="nameInput" type="text" maxlength="24" minlength="2" required placeholder="e.g. Ted" />
+          <input id="nameInput" type="text" maxlength="24" placeholder="e.g. Ted" />
         </label>
         <label class="row"><input id="blindToggle" type="checkbox" />
           Blind / low-vision mode (voice-first interface)</label>

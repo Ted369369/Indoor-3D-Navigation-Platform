@@ -123,21 +123,26 @@ export class GpsPublisher extends EventTarget {
     }
     this.watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        this.lastFix = {
+        const fix = {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           acc: pos.coords.accuracy,
           ts: pos.timestamp,
         };
-        this.dispatchEvent(new CustomEvent("fix", { detail: this.lastFix }));
+        // discard duplicate readings the OS re-emits with an unchanged timestamp
+        if (this.lastFix && this.lastFix.ts === fix.ts) return;
+        this.lastFix = fix;
+        this.dispatchEvent(new CustomEvent("fix", { detail: fix }));
+        // publish rate rises with movement: send immediately on a fresh fix,
+        // but never faster than minInterval
         const now = Date.now();
         if (now - this.lastSent >= this.minInterval) {
           this.lastSent = now;
-          this.bus.publish(`libnav/user/${this.uid}/gps`, this.lastFix);
+          this.bus.publish(`libnav/user/${this.uid}/gps`, fix);
         }
       },
       (err) => this.dispatchEvent(new CustomEvent("error", { detail: err.message })),
-      { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
     );
   }
 

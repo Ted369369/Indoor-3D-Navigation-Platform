@@ -1,0 +1,25 @@
+{
+  "libraries": [
+    {
+      "id": "main",
+      "name": "Main Library",
+      "location": "3 floors · periodicals, books, study areas",
+      "model": "data/map_model.json",
+      "available": true
+    },
+    {
+      "id": "east",
+      "name": "East Branch",
+      "location": "Coming soon",
+      "model": "",
+      "available": false
+    },
+    {
+      "id": "science",
+      "name": "Science & Technology Library",
+      "location": "Coming soon",
+      "model": "",
+      "available": false
+    }
+  ]
+}
