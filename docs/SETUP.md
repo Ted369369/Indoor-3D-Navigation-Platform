@@ -16,8 +16,8 @@ Python position engine ───────┘          └──────�
 
 - Phones publish GPS; ESP nodes publish pressure; the engine fuses both into
   `libnav/user/<uid>/pos`, which all web clients (you + your friends) render.
-- The **reference node** is a sixth ESP8266 fixed on **floor 2** (z = 0). It
-  cancels weather-induced pressure drift for everyone.
+- The **reference node** is a sixth ESP8266 fixed on the **entrance floor, 1F**
+  (z = 0). It cancels weather-induced pressure drift for everyone.
 
 ---
 
@@ -67,7 +67,8 @@ Wiring: `VIN→3V3  GND→GND  SCL→D1(GPIO5)  SDA→D2(GPIO4)`
    node still connects but logs a warning and skips server authentication.
 4. Flash at 115200 baud; the serial monitor shows Wi-Fi, NTP, and MQTT status.
    The LED blinks briefly on every publish (2 Hz).
-5. Place `NAV-REF` anywhere on **floor 2**, powered permanently (USB adapter).
+5. Place `NAV-REF` anywhere on **floor 1** (the entrance floor, z = 0), powered
+   permanently (USB adapter).
    Label each user unit with its `DEVICE_ID`: powered-on units are discovered
    automatically and listed in the app's pairing picker, and the label lets a
    visitor match the physical unit in their hand to the on-screen entry.
@@ -136,16 +137,26 @@ The 3D map needs to know where the building sits on Earth:
 - **Floor detection** is differential barometry: ±0.25 m sensor accuracy vs.
   3.8 m floor spacing gives a wide margin, and a 2 s hysteresis prevents
   flapping inside stairwells. If floors read wrong, confirm the reference node
-  is online (`libnav/dev/NAV-REF/status`) and actually on floor 2.
+  is online (`libnav/dev/NAV-REF/status`) and actually on floor 1.
 - **GPS indoors** is 5–30 m; the engine's Kalman filter + snap-to-corridor
   keep the marker sensible. Expect zone-level, not shelf-level, accuracy.
 - **iOS**: voice *output* (guidance) works; voice *input* (dictation button)
   hides itself because Safari lacks SpeechRecognition. Everything else is
   identical to Android.
-- **Editing the map**: all geometry, zones, walkable graph, and the
-  class → zone table live in `web/data/map_model.json`. Coordinates are metres:
-  x = 0–50 west→east, y = 0–35 top→bottom of the drawing. The engine reads the
-  same file — restart it after edits.
+- **Floors & stairs**: the model covers floors 1–5 (1F service, 2F periodicals,
+  3F reference, 4F & 5F books) at 3.8 m spacing. Vertical travel uses one of two
+  staircases — the **central stairs/escalator** or the **stairs by the
+  elevator** — or the **elevator** (step-free). Routes use a single core; the
+  chip in the route banner switches between the two staircases, and the
+  step-free toggle forces the elevator.
+- **Zone photos**: tapping a zone opens an info card. Drop a real photo at
+  `web/photos/<ZONE-ID>.jpg` (e.g. `3F-REF.jpg`) and it shows automatically —
+  see `web/photos/README.md`. Only publish photos you have the right to use.
+- **Editing the map**: all geometry, zones (with optional `desc`/`photo`),
+  walkable graph, stair cores, and the class → zone table live in
+  `web/data/map_model.json`. Coordinates are metres: x = 0–50 west→east,
+  y = 0–35 top→bottom of the drawing. The engine reads the same file — restart
+  it after edits.
 - **Adding a library**: append an entry to `web/data/libraries.json`
   (`id`, `name`, `location`, `model` = path to that library's map JSON,
   `available: true`) and drop its map model alongside `map_model.json`. It

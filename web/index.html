@@ -52,14 +52,18 @@
       <span class="brand-text">Library<b>Nav</b></span>
       <span id="floorNow" class="floor-now">—</span>
       <select id="myFloorSel" class="myfloor" hidden aria-label="Set the floor you are on">
+        <option value="1">I'm on 1F</option>
         <option value="2">I'm on 2F</option>
+        <option value="3">I'm on 3F</option>
         <option value="4">I'm on 4F</option>
         <option value="5">I'm on 5F</option>
       </select>
     </div>
     <nav id="floorChips" aria-label="Floor filter">
       <button class="fchip active" data-floor="all">All</button>
+      <button class="fchip" data-floor="1">1F</button>
       <button class="fchip" data-floor="2">2F</button>
+      <button class="fchip" data-floor="3">3F</button>
       <button class="fchip" data-floor="4">4F</button>
       <button class="fchip" data-floor="5">5F</button>
       <button id="btnExplode" title="Exploded view" aria-label="Toggle exploded view">⇕</button>
@@ -89,6 +93,8 @@
       <strong id="routeDest"></strong>
       <span id="routeMeta" class="route-meta"></span>
     </div>
+    <button id="routeVia" class="route-via" hidden title="Switch staircase"
+            aria-label="Switch staircase used for this route"></button>
     <button id="btnEndRoute" aria-label="End navigation">✕</button>
   </div>
 
@@ -211,6 +217,25 @@
     </form>
   </div>
 
+  <!-- zone info popup (tap a zone on the map) -->
+  <div id="zoneModal" class="modal-backdrop" hidden>
+    <div class="modal zone-card">
+      <figure id="zonePhoto" class="zone-photo">
+        <img id="zonePhotoImg" hidden alt="" />
+        <div id="zonePhotoPlaceholder" class="zone-photo-ph">No photo yet</div>
+      </figure>
+      <div class="zone-head">
+        <h1 id="zoneName"></h1>
+        <span id="zoneFloor" class="floor-tag"></span>
+      </div>
+      <p id="zoneDesc" class="muted"></p>
+      <div class="row gap">
+        <button type="button" id="zoneGoBtn">Navigate here</button>
+        <button type="button" id="btnCloseZone" class="ghost">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- capacity overlay -->
   <div id="capacityOverlay" class="modal-backdrop" hidden>
     <div class="modal center">
@@ -224,6 +249,6 @@
   <div id="announcer" class="sr-only" aria-live="assertive"></div>
   <div id="toast" role="status"></div>
 
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=5floors"></script>
 </body>
 </html>
