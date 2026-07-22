@@ -349,17 +349,28 @@ class Engine:
 
     def handle_gps(self, uid: str, data: dict):
         now = time.time()
+        acc = float(data.get("acc", 30.0))
+        if acc > 100.0:
+            return  # unusable fix - skip rather than corrupt the filter
         x, y = self.geo.to_local(float(data["lat"]), float(data["lng"]))
         # clamp into the site bounding box to reject wild GPS outliers
         x = max(-10.0, min(self.map.site["width"] + 10.0, x))
         y = max(-10.0, min(self.map.site["depth"] + 10.0, y))
-        acc = float(data.get("acc", 30.0))
         with self.lock:
             user = self.users.setdefault(uid, UserState(uid))
             if not user.is_active(now):
                 user.queued_at = now  # (re)joining the admission queue
             user.kf.predict(now - user.last_kf_time if user.last_kf_time else 0.0)
-            user.kf.update(x, y, acc / 2.0)
+            # down-weight a fix that implies an implausible speed (>3 m/s of
+            # unexplained jump beyond its own accuracy) so one bad reading can't
+            # snap the marker across the room
+            r = acc / 2.0
+            if user.kf.initialized:
+                jump = math.hypot(x - user.kf.x[0], y - user.kf.x[1])
+                dt = max(0.1, now - user.last_kf_time)
+                if jump - acc > 3.0 * dt:
+                    r *= 4.0
+            user.kf.update(x, y, r)
             user.last_kf_time = now
             user.last_gps = now
             user.gps_acc = acc

@@ -20,15 +20,15 @@ const state = {
   friends: new Map(), // uid -> {name, online, pos, subscribed}
   admitted: true,
   sensorLastSeen: 0, sensorRssi: null, pressureOk: false,
+  catalog: [], library: null, // available libraries + the chosen one
+  geo: null, smoother: makeGpsSmoother(), // client-side GPS conversion + smoothing
 };
 
 let model, scene, nav, intent, speaker, listener, guidance, bus, gps, social;
 
 /* ============================== boot ==================================== */
 async function boot() {
-  model = await (await fetch("data/map_model.json")).json();
-  scene = new MapScene($("scene"), model, { onZoneClick: onZoneTap });
-  nav = new Navigator(model);
+  // Model + 3D scene are created only after a library is chosen (step 0).
   speaker = new Speaker($("announcer"));
   bus = new Bus();
   social = new Social(CFG);
@@ -42,13 +42,30 @@ async function boot() {
   $("accessibleToggle").checked = !!prefs.accessible;
   if (!social.enabled) $("soloNote").hidden = false;
 
-  // Two-step onboarding: 1) profile -> connect, 2) pick a nearby sensor.
-  // Pairing is always an explicit user choice - never automatic.
-  let welcomeStep = 1;
+  await loadLibraryCatalog(prefs.libraryId);
+
+  // Three-step onboarding: 0) library, 1) profile -> connect, 2) sensor/mode.
+  let welcomeStep = 0;
   $("welcomeForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const btn = $("startBtn");
-    if (welcomeStep === 1) {
+    if (welcomeStep === 0) {
+      if (!state.library) return;
+      btn.disabled = true;
+      btn.textContent = "Loading…";
+      try {
+        await openLibrary(state.library);
+        welcomeStep = 1;
+        $("stepLibrary").hidden = true;
+        $("stepProfile").hidden = false;
+        btn.textContent = "Continue";
+        btn.disabled = false;
+      } catch (err) {
+        toast(`Could not load library: ${err.message}`, "error");
+        btn.disabled = false;
+        btn.textContent = "Continue";
+      }
+    } else if (welcomeStep === 1) {
       btn.disabled = true;
       btn.textContent = "Connecting…";
       try {
@@ -75,6 +92,61 @@ async function boot() {
   });
   $("modeEsp").addEventListener("click", () => setPositionMode("esp"));
   $("modeGps").addEventListener("click", () => setPositionMode("gps"));
+}
+
+/* ------------------------- library selection ---------------------------- */
+async function loadLibraryCatalog(preferredId) {
+  let catalog;
+  try {
+    catalog = await (await fetch("data/libraries.json")).json();
+  } catch {
+    // fall back to the single bundled map so the app still works
+    catalog = { libraries: [
+      { id: "main", name: "Library", location: "", model: "data/map_model.json", available: true },
+    ] };
+  }
+  state.catalog = catalog.libraries || [];
+  const available = state.catalog.filter((l) => l.available);
+  state.library =
+    state.catalog.find((l) => l.id === preferredId && l.available) || available[0] || null;
+  renderLibraryList();
+}
+
+function renderLibraryList() {
+  const box = $("libraryList");
+  box.innerHTML = "";
+  for (const lib of state.catalog) {
+    const selected = state.library?.id === lib.id;
+    const row = el(`<div class="lib-row ${lib.available ? "" : "disabled"} ${selected ? "selected" : ""}"
+        role="option" aria-selected="${selected}" tabindex="${lib.available ? 0 : -1}">
+      <span class="lib-icon">${lib.available ? "📚" : "🔒"}</span>
+      <span class="lib-text"><b>${esc(lib.name)}</b><span>${esc(lib.location || "")}</span></span>
+      ${lib.available ? '<span class="lib-check">✓</span>' : '<span class="lib-soon">Soon</span>'}</div>`);
+    if (lib.available) {
+      const pick = () => {
+        state.library = lib;
+        renderLibraryList();
+        $("startBtn").disabled = false;
+      };
+      row.addEventListener("click", pick);
+      row.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); }
+      });
+    }
+    box.appendChild(row);
+  }
+  $("startBtn").disabled = !state.library;
+}
+
+/** Load the chosen library's map model and build the 3D scene. */
+async function openLibrary(lib) {
+  model = await (await fetch(lib.model)).json();
+  scene = new MapScene($("scene"), model, { onZoneClick: onZoneTap });
+  nav = new Navigator(model);
+  state.geo = null;
+  state.smoother.reset();
+  const prefs = JSON.parse(localStorage.getItem("libnav.prefs") || "{}");
+  localStorage.setItem("libnav.prefs", JSON.stringify({ ...prefs, libraryId: lib.id }));
 }
 
 /** Switch between "esp" (sensor + GPS) and "gps" (GPS only, manual floor). */
@@ -230,10 +302,12 @@ async function startCore(opts) {
 
 /** Called once the user has explicitly chosen a mode (and sensor, if any). */
 function finalizeStart() {
+  const prev = JSON.parse(localStorage.getItem("libnav.prefs") || "{}");
   localStorage.setItem("libnav.prefs", JSON.stringify({
+    ...prev,
     name: state.name, blind: state.blind, accessible: state.accessible,
     deviceId: state.deviceId || "", mode: state.mode, myFloor: state.myFloor,
-    uid: JSON.parse(localStorage.getItem("libnav.prefs") || "{}").uid,
+    libraryId: state.library?.id || prev.libraryId,
   }));
   publishPairing();
   publishFloor();
@@ -341,19 +415,71 @@ function ensureGeo(fix) {
   return state.geo;
 }
 
+/* Accuracy-weighted low-pass with per-update motion clamp. Turns jittery raw
+ * GPS into a stable, smoothly moving marker; a single wild fix can't yank it
+ * across the building. Works in local metres, so it is reset whenever the geo
+ * frame changes (new library / recalibration). */
+function makeGpsSmoother() {
+  let sx = null, sy = null, st = 0;
+  return {
+    reset() { sx = null; sy = null; st = 0; },
+    update(x, y, acc, now) {
+      if (sx === null) { sx = x; sy = y; st = now; return [x, y]; }
+      const dt = Math.max(0.05, (now - st) / 1000);
+      st = now;
+      const gain = Math.min(0.6, Math.max(0.12, 15 / (acc + 15))); // trust good fixes more
+      let nx = sx + gain * (x - sx);
+      let ny = sy + gain * (y - sy);
+      // cap correction to a plausible walking envelope for this interval
+      const maxStep = 2.0 * dt + acc * 0.15;
+      const d = Math.hypot(nx - sx, ny - sy);
+      if (d > maxStep) { const k = maxStep / d; nx = sx + (nx - sx) * k; ny = sy + (ny - sy) * k; }
+      sx = nx; sy = ny;
+      return [sx, sy];
+    },
+  };
+}
+
+/** Nearest point on the floor's walkable graph, if within `maxDist` metres. */
+function snapToGraph(floorStr, x, y, maxDist = 10) {
+  const floor = model.floors[floorStr];
+  if (!floor) return [x, y];
+  const nodes = {};
+  for (const n of floor.nodes) nodes[n.id] = n;
+  let bx = x, by = y, bd = Infinity;
+  for (const [a, b] of floor.edges) {
+    const na = nodes[a], nb = nodes[b];
+    const dx = nb.x - na.x, dy = nb.y - na.y;
+    const l2 = dx * dx + dy * dy;
+    const t = l2 ? Math.max(0, Math.min(1, ((x - na.x) * dx + (y - na.y) * dy) / l2)) : 0;
+    const qx = na.x + t * dx, qy = na.y + t * dy;
+    const d = Math.hypot(x - qx, y - qy);
+    if (d < bd) { bd = d; bx = qx; by = qy; }
+  }
+  return bd <= maxDist ? [bx, by] : [x, y];
+}
+
 function showLocalGps(fix) {
   if (!state.uid || !scene) return;
   // defer to the fusion engine whenever it is actively publishing
   if (state.lastFusedAt && Date.now() - state.lastFusedAt < 6000) return;
+  // drop unusable fixes so the marker never teleports on a bad reading
+  if (fix.acc != null && fix.acc > 100) return;
 
   const toLocal = ensureGeo(fix);
   const W = model.site.width, D = model.site.depth;
   let [x, y] = toLocal(fix.lat, fix.lng);
+  [x, y] = state.smoother.update(x, y, fix.acc ?? 30, Date.now());
   x = Math.max(-8, Math.min(W + 8, x));
   y = Math.max(-8, Math.min(D + 8, y));
+
   const floor = state.mode === "gps"
     ? state.myFloor
     : String(state.pos?.floor || state.myFloor || "2");
+
+  // snap onto corridors once the map is calibrated (skip while auto-anchored,
+  // where the frame isn't yet aligned to the building)
+  if (localStorage.getItem("libnav.anchors")) [x, y] = snapToGraph(floor, x, y);
 
   const pos = { x, y, floor: Number(floor), q: { gpsAcc: fix.acc, mode: "local-gps" } };
   state.pos = pos;
@@ -749,6 +875,7 @@ function wireUi() {
     localStorage.setItem("libnav.anchors", JSON.stringify(anchors));
     bus.publish("libnav/site/anchors", anchors, { retain: true, qos: 1 });
     state.geo = null; // rebuild the local converter from the new calibration
+    state.smoother.reset();
     if (gps?.lastFix) showLocalGps(gps.lastFix);
     $("settingsModal").hidden = true;
     toast("Geo anchors saved and broadcast to the engine", "ok");

@@ -103,9 +103,10 @@ Stop it before real use; it frees its slots immediately on exit.
    Netlify, Vercel, Cloudflare Pages. HTTPS is mandatory: browsers refuse
    geolocation on plain HTTP (localhost is exempt for development).
    Local preview: `python -m http.server 8123 --directory web`.
-3. First launch on a phone: enter a display name (enable blind mode or
-   step-free routing if needed), grant the location permission, then choose a
-   **positioning mode**:
+3. First launch on a phone: **choose a library** (currently one; the picker is
+   built to list more as they are added — see below), enter a display name
+   (enable blind mode or step-free routing if needed), grant the location
+   permission, then choose a **positioning mode**:
    - **ESP sensor + phone GPS** — the app scans for nearby powered-on sensors
      and lists up to 5, strongest signal first, with live status (Available /
      In use / Offline). Tap the unit whose printed ID you are holding —
@@ -145,6 +146,11 @@ The 3D map needs to know where the building sits on Earth:
   class → zone table live in `web/data/map_model.json`. Coordinates are metres:
   x = 0–50 west→east, y = 0–35 top→bottom of the drawing. The engine reads the
   same file — restart it after edits.
+- **Adding a library**: append an entry to `web/data/libraries.json`
+  (`id`, `name`, `location`, `model` = path to that library's map JSON,
+  `available: true`) and drop its map model alongside `map_model.json`. It
+  appears in the startup picker automatically; entries with `available: false`
+  render as greyed-out "coming soon" cards.
 - **Adding vocabulary**: insert rows into the Supabase `keywords` table
   (term, aliases, zone_id) — clients pick them up on next load. The built-in
   dictionary is in `web/js/intent.js`.
