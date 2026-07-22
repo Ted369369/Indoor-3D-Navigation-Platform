@@ -2,12 +2,12 @@
  * Application orchestrator: boots the 3D scene, connectivity, chat intent,
  * voice guidance, friends, and connection-quality indicators.
  */
-import { MapScene } from "./map3d.js?v=5floors";
-import { Navigator } from "./nav.js?v=5floors";
-import { IntentEngine } from "./intent.js?v=5floors";
-import { Speaker, Listener, Guidance } from "./voice.js?v=5floors";
-import { Bus, GpsPublisher } from "./net.js?v=5floors";
-import { Social } from "./supa.js?v=5floors";
+import { MapScene } from "./map3d.js?v=5floors3";
+import { Navigator } from "./nav.js?v=5floors3";
+import { IntentEngine } from "./intent.js?v=5floors3";
+import { Speaker, Listener, Guidance } from "./voice.js?v=5floors3";
+import { Bus, GpsPublisher } from "./net.js?v=5floors3";
+import { Social } from "./supa.js?v=5floors3";
 
 const CFG = window.NAV_CONFIG;
 const $ = (id) => document.getElementById(id);
@@ -1016,5 +1016,11 @@ boot().catch((err) => {
 window.__nav = { state, renderDeviceList, showLocalGps, setChatCollapsed,
   openZoneInfo, navigateTo, submitChat: () => submitChat(),
   zonesOf: () => nav?.zones,
+  scene: () => scene,
+  floorVisibility: () => Object.fromEntries(
+    Object.entries(scene.floorGroups).map(([lvl, g]) => [lvl, {
+      visible: g.visible,
+      slabOpacity: +(g.children.find(c => c.userData?.baseOpacity === 0.92)?.material.opacity ?? 0).toFixed(2),
+    }])),
   markerCount: () => scene?.markers?.size ?? 0,
   selfMarker: () => scene?.markers?.get(state.uid)?.target };
