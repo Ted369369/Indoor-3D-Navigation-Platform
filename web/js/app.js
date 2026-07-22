@@ -2,20 +2,27 @@
  * Application orchestrator: boots the 3D scene, connectivity, chat intent,
  * voice guidance, friends, and connection-quality indicators.
  */
-import { MapScene } from "./map3d.js";
-import { Navigator } from "./nav.js";
-import { IntentEngine } from "./intent.js";
-import { Speaker, Listener, Guidance } from "./voice.js";
-import { Bus, GpsPublisher } from "./net.js";
-import { Social } from "./supa.js";
+import { MapScene } from "./map3d.js?v=5floors";
+import { Navigator } from "./nav.js?v=5floors";
+import { IntentEngine } from "./intent.js?v=5floors";
+import { Speaker, Listener, Guidance } from "./voice.js?v=5floors";
+import { Bus, GpsPublisher } from "./net.js?v=5floors";
+import { Social } from "./supa.js?v=5floors";
 
 const CFG = window.NAV_CONFIG;
 const $ = (id) => document.getElementById(id);
-const DEFAULT_START = { floor: 2, x: 25, y: 19 }; // 2F escalator hall (entrance)
+const DEFAULT_START = { floor: 1, x: 26.5, y: 26.5 }; // 1F entrance lobby
+const FLOORS = ["1", "2", "3", "4", "5"];
+
+/** Vertical-circulation profile for routing: step-free wins, else stair choice. */
+function routeProfile() {
+  return state.accessible ? "elevator" : state.stairPref;
+}
 
 const state = {
   uid: null, name: "", deviceId: "", blind: false, accessible: false,
-  mode: "esp", myFloor: "2", // positioning mode: "esp" (sensor+GPS) | "gps" (GPS only)
+  mode: "esp", myFloor: "1", // positioning mode: "esp" (sensor+GPS) | "gps" (GPS only)
+  stairPref: "central",      // "central" | "west" - which staircase routes use
   pos: null, route: null, routeTarget: null,
   friends: new Map(), // uid -> {name, online, pos, subscribed}
   admitted: true,
@@ -37,7 +44,8 @@ async function boot() {
   $("nameInput").value = prefs.name || "";
   state.lastDeviceId = prefs.deviceId || ""; // preselect hint only - user still confirms
   state.mode = prefs.mode === "gps" ? "gps" : "esp";
-  state.myFloor = ["2", "4", "5"].includes(prefs.myFloor) ? prefs.myFloor : "2";
+  state.myFloor = FLOORS.includes(prefs.myFloor) ? prefs.myFloor : "1";
+  state.stairPref = prefs.stairPref === "west" ? "west" : "central";
   $("blindToggle").checked = !!prefs.blind;
   $("accessibleToggle").checked = !!prefs.accessible;
   if (!social.enabled) $("soloNote").hidden = false;
@@ -98,7 +106,7 @@ async function boot() {
 async function loadLibraryCatalog(preferredId) {
   let catalog;
   try {
-    catalog = await (await fetch("data/libraries.json")).json();
+    catalog = await (await fetch("data/libraries.json", { cache: "no-cache" })).json();
   } catch {
     // fall back to the single bundled map so the app still works
     catalog = { libraries: [
@@ -140,7 +148,7 @@ function renderLibraryList() {
 
 /** Load the chosen library's map model and build the 3D scene. */
 async function openLibrary(lib) {
-  model = await (await fetch(lib.model)).json();
+  model = await (await fetch(lib.model, { cache: "no-cache" })).json();
   scene = new MapScene($("scene"), model, { onZoneClick: onZoneTap });
   nav = new Navigator(model);
   state.geo = null;
@@ -546,8 +554,7 @@ function navigateTo(target, lead = "") {
   const start = state.pos
     ? { floor: state.pos.floor, x: state.pos.x, y: state.pos.y }
     : DEFAULT_START;
-  const profile = state.accessible ? "accessible" : "normal";
-  const route = nav.route(start, target, profile);
+  const route = nav.route(start, target, routeProfile());
   if (!route) {
     chatSystem("Sorry, I could not compute a route to that destination.");
     return;
@@ -557,7 +564,7 @@ function navigateTo(target, lead = "") {
   scene.showPath(route.points);
   scene.highlightZone(typeof target === "string" ? target : null);
   if (!state.pos) {
-    chatSystem("No live position yet - route starts from the floor 2 entrance.");
+    chatSystem("No live position yet - route starts from the floor 1 entrance.");
   }
 
   $("routeBanner").hidden = false;
@@ -579,6 +586,26 @@ function updateRouteBanner(pos) {
   }
   const mins = Math.max(1, Math.round(r.etaS / 60));
   $("routeMeta").textContent = `${remaining} m · ~${mins} min · ${r.instructions.length - 1} steps`;
+  // show the vertical option in use, and let the user switch it
+  const viaLabel = { central: "Central stairs", west: "Stairs by elevator", elevator: "Elevator" }[routeProfile()];
+  const crossesFloors = r.points.some((p, i) => i && p.floor !== r.points[i - 1].floor);
+  $("routeVia").hidden = !crossesFloors;
+  $("routeVia").textContent = `via ${viaLabel}`;
+}
+
+/** Cycle the stair preference (central ⇄ elevator-side) and re-route. */
+function toggleStairPref() {
+  if (state.accessible) {
+    toast("Step-free mode is on - routes use the elevator.", "warn");
+    return;
+  }
+  state.stairPref = state.stairPref === "central" ? "west" : "central";
+  const prefs = JSON.parse(localStorage.getItem("libnav.prefs") || "{}");
+  localStorage.setItem("libnav.prefs", JSON.stringify({ ...prefs, stairPref: state.stairPref }));
+  const label = state.stairPref === "central" ? "the central stairs" : "the stairs by the elevator";
+  toast(`Routing via ${label}`, "ok");
+  speaker.speak(`Now routing via ${label}.`);
+  if (state.routeTarget) navigateTo(state.routeTarget);
 }
 
 function reroute() {
@@ -597,12 +624,43 @@ function endRoute(arrived = false) {
 
 function onZoneTap(zoneId) {
   const zone = nav.zones[zoneId];
-  if (!zone || zone.kind === "staff") {
-    if (zone) chatSystem(`${zone.name} is staff-only and not open to visitors.`);
-    return;
-  }
-  chatSystem(`Navigating to ${zone.name} (tapped on the map).`);
-  navigateTo(zoneId);
+  if (!zone) return;
+  openZoneInfo(zone);
+}
+
+/* ---- zone info popup (name, description, real photo, navigate) ---------- */
+function openZoneInfo(zone) {
+  const staff = zone.kind === "staff";
+  $("zoneName").textContent = zone.name;
+  $("zoneFloor").textContent = `Floor ${zone.floor}`;
+  $("zoneDesc").textContent =
+    zone.desc || (staff ? "Staff-only area, not open to visitors." : "");
+  $("zoneDesc").hidden = !$("zoneDesc").textContent;
+
+  // Real photo: an explicit zone.photo, else the drop-in convention
+  // web/photos/<ZONE-ID>.jpg. Missing files fall back to a colour placeholder,
+  // so adding a photo needs no code change - just drop the file in.
+  const img = $("zonePhotoImg");
+  const ph = $("zonePhotoPlaceholder");
+  const src = zone.photo || `photos/${encodeURIComponent(zone.id)}.jpg`;
+  ph.style.background = zone.color;
+  ph.textContent = "";
+  img.hidden = true;
+  ph.hidden = false;
+  img.onload = () => { img.hidden = false; ph.hidden = true; };
+  img.onerror = () => { img.hidden = true; ph.hidden = false; ph.textContent = "No photo yet"; };
+  img.alt = zone.name;
+  img.src = src;
+
+  const goBtn = $("zoneGoBtn");
+  goBtn.hidden = staff;
+  goBtn.onclick = () => {
+    $("zoneModal").hidden = true;
+    chatSystem(`Navigating to ${zone.name}.`);
+    speaker.speak(`Navigating to ${zone.name}.`);
+    navigateTo(zone.id);
+  };
+  $("zoneModal").hidden = false;
 }
 
 /* ============================== chat ==================================== */
@@ -632,7 +690,7 @@ function submitChat() {
     const best = nav.nearest(
       { floor: start.floor, x: start.x, y: start.y },
       res.candidates,
-      state.accessible ? "accessible" : "normal"
+      routeProfile()
     );
     if (best) {
       const reply = `${res.lead} ${nav.zones[best.id].name}, floor ${nav.zones[best.id].floor}.`;
@@ -848,6 +906,13 @@ function wireUi() {
   });
 
   $("btnEndRoute").addEventListener("click", () => endRoute(false));
+  $("routeVia").addEventListener("click", toggleStairPref);
+
+  // zone info popup
+  $("btnCloseZone").addEventListener("click", () => { $("zoneModal").hidden = true; });
+  $("zoneModal").addEventListener("click", (e) => {
+    if (e.target === $("zoneModal")) $("zoneModal").hidden = true;
+  });
 
   // settings / calibration
   $("btnSettings").addEventListener("click", () => {
@@ -949,5 +1014,7 @@ boot().catch((err) => {
 
 // debug/testing handle (harmless in production)
 window.__nav = { state, renderDeviceList, showLocalGps, setChatCollapsed,
+  openZoneInfo, navigateTo, submitChat: () => submitChat(),
+  zonesOf: () => nav?.zones,
   markerCount: () => scene?.markers?.size ?? 0,
   selfMarker: () => scene?.markers?.get(state.uid)?.target };
