@@ -1,14 +1,27 @@
 /*
  * Route planning over the walkable graph defined in map_model.json.
  * A* across floors: horizontal edges cost their length; vertical connectors
- * cost an effort-weighted equivalent distance. The "accessible" profile
- * (blind users / wheelchairs) only uses the elevator between floors.
+ * cost an effort-weighted equivalent distance.
+ *
+ * Vertical circulation is grouped into three "cores" (map_model connectors
+ * carry a `core` tag): the central stairs/escalator, the stairs by the
+ * elevator, and the elevator itself. A route uses exactly one core, so the
+ * three profiles are:
+ *   central  - all floor changes on the central stairs/escalator
+ *   west     - all floor changes on the stairs beside the elevator
+ *   elevator - step-free, elevator only (blind / wheelchair users)
  */
 
 const CONNECTOR_COST = {
   escalator: (storeys) => 14 * storeys,
   stairs: (storeys) => 18 * storeys,
   elevator: (storeys) => 28 + 5 * storeys, // includes average wait
+};
+
+const PROFILE_CORES = {
+  central: new Set(["central"]),
+  west: new Set(["west"]),
+  elevator: new Set(["elevator"]),
 };
 
 export class Navigator {
@@ -20,12 +33,16 @@ export class Navigator {
       for (const z of floor.zones) this.zones[z.id] = { ...z, floor: level };
     }
     this.graphs = {
-      normal: this._buildGraph(false),
-      accessible: this._buildGraph(true),
+      central: this._buildGraph(PROFILE_CORES.central),
+      west: this._buildGraph(PROFILE_CORES.west),
+      elevator: this._buildGraph(PROFILE_CORES.elevator),
     };
+    // legacy aliases so older callers keep working
+    this.graphs.normal = this.graphs.central;
+    this.graphs.accessible = this.graphs.elevator;
   }
 
-  _buildGraph(accessibleOnly) {
+  _buildGraph(allowedCores) {
     const nodes = new Map(); // key "level:id" -> {x,y,level,id,kind}
     const adj = new Map();   // key -> [{to, cost, via}]
     const addEdge = (a, b, cost, via = null) => {
@@ -46,7 +63,9 @@ export class Navigator {
       }
     }
     for (const conn of this.model.connectors) {
-      if (accessibleOnly && !conn.accessible) continue;
+      // a connector's `core` (falling back to accessibility) selects the profile
+      const core = conn.core || (conn.accessible ? "elevator" : "central");
+      if (!allowedCores.has(core)) continue;
       for (const link of conn.links) {
         const a = `${link.from[0]}:${link.from[1]}`;
         const b = `${link.to[0]}:${link.to[1]}`;

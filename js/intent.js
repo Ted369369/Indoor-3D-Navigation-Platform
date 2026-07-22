@@ -113,6 +113,26 @@ add("compact stacks", ["密集書庫", "archive", "舊書", "書庫"], { zone: "
 add("shanghai window", ["上海之窗", "閱讀北京", "reading beijing", "上海", "北京"], { zone: "5F-I" });
 add("resource center", ["北區資源中心", "resource centre"], { zone: "5F-J" });
 
+/* ---- 1F service floor ----------------------------------------------------- */
+add("service desk", ["綜合服務臺", "服務台", "information desk", "help desk", "circulation"], { zone: "1F-B" });
+add("library card", ["借閱證", "辦證", "register", "membership"], { zone: "1F-B" });
+add("borrow book", ["borrow", "checkout", "check out", "借書", "還書", "return book", "歸還"], { zone: "1F-B" });
+add("reservation pickup", ["預約取書", "hold pickup", "自助取書"], { zone: "1F-B" });
+add("learning e-garden", ["學習e樂園", "學習ｅ樂園", "computers", "internet", "上網", "電腦", "printing", "列印", "print"], { zone: "1F-A" });
+add("entrance", ["入口", "lobby", "大廳", "front door", "exit", "出口"], { zone: "1F-ENT" });
+
+/* ---- 3F reference floor --------------------------------------------------- */
+add("reference", ["參考", "參考資料", "reference books", "中文參考", "reference room", "參考室"], { zone: "3F-REF" });
+add("foreign reference", ["外文參考", "外文參考資料", "foreign language reference"], { zone: "3F-FL" });
+add("american corner", ["美國資料中心", "american reference", "美國資料"], { zone: "3F-AC" });
+add("study abroad", ["留學", "留學資料中心", "studying overseas", "留學資料"], { zone: "3F-SA" });
+add("adult education", ["成人教育", "成人教育資源中心", "continuing education"], { zone: "3F-AE" });
+add("maps", ["地圖", "輿圖", "輿圖區", "atlas", "globe", "地圖集"], { zone: "3F-MAP" });
+add("microform", ["縮影", "縮影資料", "microfilm", "microfiche"], { zone: "3F-MF" });
+add("reference desk", ["諮詢服務臺", "諮詢台", "consultation desk", "reference help"], { zone: "3F-INFO" });
+add("photocopying", ["影印", "影印區", "copy", "copier", "photocopy"], { zone: "3F-COPY" });
+add("government publications", ["政府出版品", "compact shelves", "密集書庫3", "exam materials", "考試"], { zone: "3F-CS" });
+
 /* ---- functional intents --------------------------------------------------- */
 add("latest news", ["news", "newspaper", "時事", "新聞", "報紙", "today's paper", "最新時事"],
   { intent: "newspapers" });
@@ -125,8 +145,8 @@ add("elevator", ["lift", "電梯"], { intent: "nearest_elevator" });
 const INTENT_TARGETS = {
   newspapers: { candidates: ["2F-C", "2F-A"], lead: "Newspapers and current events are on floor 2." },
   nearest_reading: { candidates: ["4F-F", "5F-A", "2F-A"], lead: "Taking you to the nearest reading area." },
-  nearest_restroom: { candidates: ["2F-WC", "4F-WC", "5F-WC"], lead: "Taking you to the nearest restroom." },
-  nearest_elevator: { candidates: ["2F-ELEV", "4F-ELEV", "5F-ELEV"], lead: "Taking you to the nearest elevator." },
+  nearest_restroom: { candidates: ["1F-WC", "2F-WC", "3F-WC", "4F-WC", "5F-WC"], lead: "Taking you to the nearest restroom." },
+  nearest_elevator: { candidates: ["1F-ELEV", "2F-ELEV", "3F-ELEV", "4F-ELEV", "5F-ELEV"], lead: "Taking you to the nearest elevator." },
 };
 
 export class IntentEngine {
@@ -162,12 +182,12 @@ export class IntentEngine {
     if (!q) return { kind: "unknown" };
 
     // explicit floor request: "go to floor 4" / "4樓"
-    const floorMatch = q.match(/(?:floor\s*([245]))|([245])\s*樓/);
+    const floorMatch = q.match(/(?:floor\s*([1-5]))|([1-5])\s*樓/);
     if (floorMatch && q.length < 20) {
       const f = floorMatch[1] || floorMatch[2];
       return {
         kind: "zone", zoneId: `${f}F-ESC`,
-        reply: `Heading to floor ${f} - I will route you to its escalator landing.`,
+        reply: `Heading to floor ${f} - I will route you to its central stairs landing.`,
       };
     }
 
