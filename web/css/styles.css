@@ -130,6 +130,23 @@ button { font-family: var(--font); cursor: pointer; }
   font-size: 12px; font-weight: 600; white-space: nowrap; font-family: var(--font);
 }
 
+.away-notice {
+  position: fixed; top: 64px; left: 50%; transform: translateX(-50%);
+  z-index: 19; display: flex; align-items: center; gap: 10px;
+  max-width: min(92vw, 460px);
+  background: var(--panel); border: 1px solid var(--amber);
+  border-radius: var(--radius); padding: 11px 15px;
+  backdrop-filter: blur(14px); box-shadow: var(--shadow);
+  font-size: 13px; line-height: 1.45; color: var(--text);
+}
+.away-notice .away-icon { font-size: 18px; }
+.away-notice b { color: var(--amber); }
+.settings-sub {
+  font-size: 15px; font-weight: 500; margin-top: 4px;
+  padding-top: 12px; border-top: 1px solid var(--line);
+}
+@media (min-width: 900px) { .away-notice { top: 74px; } }
+
 /* ---------------- zone info popup ---------------- */
 .zone-card { padding: 0; overflow: hidden; gap: 0; }
 .zone-photo { margin: 0; width: 100%; height: 190px; background: var(--bg1); }

@@ -7,10 +7,12 @@
     "floorHeight": 3.8,
     "walkSpeed": 1.2,
     "geoAnchors": {
-      "comment": "Approximate placement of the real building (~25.0292N,121.5362E) assuming north-up; the true footprint is rotated, so on-site calibration (gear button) is still recommended. origin=NW drawing corner (0,0), xAxis=NE corner (50,0).",
-      "origin": { "lat": 25.0293125, "lng": 121.5359619 },
-      "xAxis": { "lat": 25.0293125, "lng": 121.5364576 }
+      "comment": "Placement of the real building centred on (25.029137,121.53819), assuming north-up; the true footprint is rotated, so on-site calibration (gear button) is still recommended. origin=NW drawing corner (0,0), xAxis=NE corner (50,0).",
+      "origin": { "lat": 25.0292947, "lng": 121.5379422 },
+      "xAxis": { "lat": 25.0292947, "lng": 121.5384378 }
     },
+    "center": { "lat": 25.029137, "lng": 121.53819 },
+    "geofenceRadius": 200,
     "floors": [
       { "level": 1, "z": 0.0, "label": "Floor 1 — Service desk & digital learning" },
       { "level": 2, "z": 3.8, "label": "Floor 2 — Periodicals & newspapers" },

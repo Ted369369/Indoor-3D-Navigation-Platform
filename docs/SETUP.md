@@ -119,7 +119,22 @@ Stop it before real use; it frees its slots immediately on exit.
      GPS; the floor is whatever you pick in the "I'm on …" selector that
      appears in the top bar (remember to change it when you take the stairs).
 
-## 6. Geo calibration (once, 5 min)
+## Test mode vs production mode
+
+The gear (⚙) menu has an **App mode** switch:
+
+- **Test mode** (default) — your marker shows anywhere you are, auto-anchored to
+  where you first stood. Good for demos and development away from the building.
+- **Production mode** — your marker only appears when your phone is within
+  **200 m of the library** (centre `25.029137, 121.53819`); farther away it
+  hides the marker and shows a "you are N m from the library" notice. Position
+  is anchored to the real building coordinates, not to where you launched the
+  app. Set this for the live public deployment.
+
+The centre point and radius live in `web/data/map_model.json`
+(`site.center` and `site.geofenceRadius`).
+
+## Geo calibration (once, 5 min)
 
 The 3D map needs to know where the building sits on Earth:
 

@@ -98,6 +98,13 @@
     <button id="btnEndRoute" aria-label="End navigation">✕</button>
   </div>
 
+  <!-- production-mode geofence notice -->
+  <div id="awayNotice" class="away-notice" role="status" hidden>
+    <span class="away-icon">📍</span>
+    <span>You are <b class="away-dist"></b> from the library. Your live position
+      appears once you are within <b class="away-radius"></b>.</span>
+  </div>
+
   <!-- chat -->
   <section id="chatPanel" aria-label="Navigation assistant">
     <div class="chat-head">
@@ -191,7 +198,15 @@
   <!-- calibration modal -->
   <div id="settingsModal" class="modal-backdrop" hidden>
     <form id="settingsForm" class="modal">
-      <h1>Geo calibration</h1>
+      <h1>Settings</h1>
+      <fieldset>
+        <legend>App mode</legend>
+        <label class="row"><input type="radio" name="appMode" value="test" />
+          <span><b>Test mode</b> — show my position anywhere (for demos)</span></label>
+        <label class="row"><input type="radio" name="appMode" value="production" />
+          <span><b>Production mode</b> — only show me within 200 m of the library</span></label>
+      </fieldset>
+      <h2 class="settings-sub">Geo calibration</h2>
       <p class="muted">Map two building corners to GPS. Stand at each corner and tap
         “Use my location”, or paste coordinates from Google Maps.</p>
       <fieldset>
@@ -249,6 +264,6 @@
   <div id="announcer" class="sr-only" aria-live="assertive"></div>
   <div id="toast" role="status"></div>
 
-  <script type="module" src="js/app.js?v=5floors3"></script>
+  <script type="module" src="js/app.js?v=modes1"></script>
 </body>
 </html>

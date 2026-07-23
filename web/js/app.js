@@ -2,12 +2,12 @@
  * Application orchestrator: boots the 3D scene, connectivity, chat intent,
  * voice guidance, friends, and connection-quality indicators.
  */
-import { MapScene } from "./map3d.js?v=5floors3";
-import { Navigator } from "./nav.js?v=5floors3";
-import { IntentEngine } from "./intent.js?v=5floors3";
-import { Speaker, Listener, Guidance } from "./voice.js?v=5floors3";
-import { Bus, GpsPublisher } from "./net.js?v=5floors3";
-import { Social } from "./supa.js?v=5floors3";
+import { MapScene } from "./map3d.js?v=modes1";
+import { Navigator } from "./nav.js?v=modes1";
+import { IntentEngine } from "./intent.js?v=modes1";
+import { Speaker, Listener, Guidance } from "./voice.js?v=modes1";
+import { Bus, GpsPublisher } from "./net.js?v=modes1";
+import { Social } from "./supa.js?v=modes1";
 
 const CFG = window.NAV_CONFIG;
 const $ = (id) => document.getElementById(id);
@@ -23,6 +23,7 @@ const state = {
   uid: null, name: "", deviceId: "", blind: false, accessible: false,
   mode: "esp", myFloor: "1", // positioning mode: "esp" (sensor+GPS) | "gps" (GPS only)
   stairPref: "central",      // "central" | "west" - which staircase routes use
+  appMode: "test",           // "test" (show anywhere) | "production" (200 m geofence)
   pos: null, route: null, routeTarget: null,
   friends: new Map(), // uid -> {name, online, pos, subscribed}
   admitted: true,
@@ -46,6 +47,7 @@ async function boot() {
   state.mode = prefs.mode === "gps" ? "gps" : "esp";
   state.myFloor = FLOORS.includes(prefs.myFloor) ? prefs.myFloor : "1";
   state.stairPref = prefs.stairPref === "west" ? "west" : "central";
+  state.appMode = prefs.appMode === "production" ? "production" : "test";
   $("blindToggle").checked = !!prefs.blind;
   $("accessibleToggle").checked = !!prefs.accessible;
   if (!social.enabled) $("soloNote").hidden = false;
@@ -370,6 +372,12 @@ function publishFloor() {
 /* ============================== positions =============================== */
 function onSelfPos(p) {
   state.lastFusedAt = Date.now(); // engine is live -> local GPS fallback stands down
+  // production mode: even engine-fused positions are hidden when the phone's
+  // own GPS says we are outside the library geofence
+  if (state.appMode === "production" && gps?.lastFix && !passesGeofence(gps.lastFix)) {
+    return;
+  }
+  hideAwayNotice();
   state.pos = p;
   state.pressureOk = !!p.q?.pressureOk;
   scene.updateMarker(state.uid, p, { self: true });
@@ -410,17 +418,90 @@ function ensureGeo(fix) {
   const saved = JSON.parse(localStorage.getItem("libnav.anchors") || "null");
   if (saved) {
     state.geo = makeGeo(saved);
+  } else if (state.appMode === "production") {
+    // production: anchor to the real building position (never auto-anchor) so
+    // the marker lands where you actually are inside the library
+    state.geo = makeGeo(model.site.geoAnchors);
   } else {
-    // no calibration yet: anchor the local frame to the first fix so the dot
-    // sits at the map origin and walking is visible immediately
+    // test mode, no calibration: anchor the local frame to the first fix so the
+    // dot sits at the map origin and walking is visible anywhere immediately
     const mLng = 111320.0 * Math.cos((fix.lat * Math.PI) / 180);
     state.geo = makeGeo({
       origin: { lat: fix.lat, lng: fix.lng },
       xAxis: { lat: fix.lat, lng: fix.lng + model.site.width / mLng },
     });
-    toast("Showing your live GPS position. Use ⚙ to align it to the building.", "ok");
+    toast("Test mode: showing your live GPS anywhere. Use ⚙ to align or switch to production.", "ok");
   }
   return state.geo;
+}
+
+/** Great-circle distance in metres between two lat/lng points. */
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+/** Distance (m) from a fix to the library centre, or null if not configured. */
+function distanceToLibrary(fix) {
+  const c = model?.site?.center;
+  if (!c) return null;
+  return haversine(fix.lat, fix.lng, c.lat, c.lng);
+}
+
+/**
+ * Production-mode geofence. Returns true if the marker may be shown.
+ * In test mode always true. In production, hides the marker and shows an
+ * "away" notice when the phone is beyond geofenceRadius of the library.
+ */
+function passesGeofence(fix) {
+  if (state.appMode !== "production" || !fix) return true;
+  const d = distanceToLibrary(fix);
+  const radius = model.site.geofenceRadius || 200;
+  if (d != null && d > radius) {
+    scene?.removeMarker(state.uid);
+    state.pos = null;
+    showAwayNotice(d, radius);
+    return false;
+  }
+  hideAwayNotice();
+  return true;
+}
+
+function showAwayNotice(distanceM, radius) {
+  const el = $("awayNotice");
+  if (!el) return;
+  const km = distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)} km` : `${Math.round(distanceM)} m`;
+  el.querySelector(".away-dist").textContent = km;
+  el.querySelector(".away-radius").textContent = `${radius} m`;
+  el.hidden = false;
+  $("floorNow").textContent = "Away";
+}
+function hideAwayNotice() {
+  const el = $("awayNotice");
+  if (el && !el.hidden) el.hidden = true;
+}
+
+/** Switch between test and production modes; re-evaluate the current position. */
+function setAppMode(mode) {
+  state.appMode = mode === "production" ? "production" : "test";
+  const prefs = JSON.parse(localStorage.getItem("libnav.prefs") || "{}");
+  localStorage.setItem("libnav.prefs", JSON.stringify({ ...prefs, appMode: state.appMode }));
+  state.geo = null;            // production/test use different anchoring
+  state.smoother.reset();
+  hideAwayNotice();
+  if (state.appMode === "test") {
+    toast("Test mode: your position shows anywhere.", "ok");
+  } else {
+    toast("Production mode: your position shows only within the library.", "ok");
+  }
+  speaker?.speak(state.appMode === "production"
+    ? "Production mode. Your position will show only near the library."
+    : "Test mode. Your position shows anywhere.");
+  if (gps?.lastFix) showLocalGps(gps.lastFix);
 }
 
 /* Accuracy-weighted low-pass with per-update motion clamp. Turns jittery raw
@@ -473,6 +554,8 @@ function showLocalGps(fix) {
   if (state.lastFusedAt && Date.now() - state.lastFusedAt < 6000) return;
   // drop unusable fixes so the marker never teleports on a bad reading
   if (fix.acc != null && fix.acc > 100) return;
+  // production mode: hide the marker unless we are near the library
+  if (!passesGeofence(fix)) return;
 
   const toLocal = ensureGeo(fix);
   const W = model.site.width, D = model.site.depth;
@@ -920,7 +1003,13 @@ function wireUi() {
       || model.site.geoAnchors;
     $("originLat").value = a.origin.lat; $("originLng").value = a.origin.lng;
     $("xLat").value = a.xAxis.lat; $("xLng").value = a.xAxis.lng;
+    const radio = document.querySelector(`input[name="appMode"][value="${state.appMode}"]`);
+    if (radio) radio.checked = true;
     $("settingsModal").hidden = false;
+  });
+  // app mode applies immediately (no need to save the calibration form)
+  document.querySelectorAll('input[name="appMode"]').forEach((r) => {
+    r.addEventListener("change", () => { if (r.checked) setAppMode(r.value); });
   });
   $("btnCloseSettings").addEventListener("click", () => { $("settingsModal").hidden = true; });
   const useHere = (latEl, lngEl) => () => {
@@ -1017,6 +1106,8 @@ window.__nav = { state, renderDeviceList, showLocalGps, setChatCollapsed,
   openZoneInfo, navigateTo, submitChat: () => submitChat(),
   zonesOf: () => nav?.zones,
   scene: () => scene,
+  setAppMode, distanceToLibrary,
+  feedFix: (fix) => { if (gps) gps.lastFix = fix; showLocalGps(fix); },
   floorVisibility: () => Object.fromEntries(
     Object.entries(scene.floorGroups).map(([lvl, g]) => [lvl, {
       visible: g.visible,
