@@ -309,6 +309,7 @@ class Engine:
         client.subscribe([
             ("libnav/dev/+/telemetry", 0),
             ("libnav/dev/+/status", 1),
+            ("libnav/dev/+/init", 0),
             ("libnav/user/+/gps", 0),
             ("libnav/user/+/pair", 1),
             ("libnav/user/+/floor", 1),
@@ -322,6 +323,8 @@ class Engine:
             parts = msg.topic.split("/")
             if parts[1] == "dev" and parts[3] == "telemetry":
                 self.handle_telemetry(json.loads(msg.payload))
+            elif parts[1] == "dev" and parts[3] == "init":
+                self.handle_dev_init(parts[2], json.loads(msg.payload))
             elif parts[1] == "dev" and parts[3] == "status":
                 self.handle_dev_status(parts[2], msg.payload.decode())
             elif parts[1] == "user" and parts[3] == "gps":
@@ -364,6 +367,19 @@ class Engine:
             dev = self.devices.setdefault(dev_id, DeviceState())
             dev.online = status == "online"
         log.info("device %s is %s", dev_id, status)
+
+    def handle_dev_init(self, dev_id: str, data: dict):
+        """Boot announcement from a node (published once per power-up)."""
+        with self.lock:
+            dev = self.devices.setdefault(dev_id, DeviceState())
+            dev.role = data.get("role", dev.role)
+            dev.online = True
+            dev.last_seen = time.time()
+        log.info(
+            "device %s BOOTED (role=%s fw=%s ip=%s reset=%s rssi=%s heap=%s)",
+            dev_id, data.get("role"), data.get("fw"), data.get("ip"),
+            data.get("rst"), data.get("rssi"), data.get("heap"),
+        )
 
     def handle_gps(self, uid: str, data: dict):
         now = time.time()
