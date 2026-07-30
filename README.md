@@ -31,6 +31,7 @@ concurrency cap.
 | `web/data/map_model.json` | Digitized floor plans: zones, walkable graph, class→zone map |
 | `supabase/schema.sql` | Auth-linked profiles, friendships, pairings, RLS |
 | `docs/SETUP.md` | Full deployment guide |
+| `docs/MQTT_TOPICS.md` | Complete MQTT topic reference (payloads, QoS, retain) |
 | `raw_map/` | Original hand-drawn plans |
 
 Pairing is discovery-based: powered-on ESP units near you are listed live in
