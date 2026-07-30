@@ -62,14 +62,18 @@ const char* kRole = "reference";
 const char* kRole = "user";
 #endif
 
+#define FW_VERSION __DATE__ " " __TIME__   // build stamp reported at boot
+
 char topicTelemetry[64];
 char topicStatus[64];
+char topicInit[64];
 
 uint32_t seq = 0;
 uint32_t lastSampleMs = 0;
 uint32_t lastPublishMs = 0;
 uint32_t lastReconnectMs = 0;
 uint32_t reconnectBackoffMs = 1000;
+bool initSent = false;         // guarantees one init message per power-up
 
 // median-of-5 window over raw pressure samples
 float pWindow[5];
@@ -140,6 +144,23 @@ static bool wifiEnsure() {
   return false;
 }
 
+// Retained init message, published once per power-up on the first successful
+// MQTT connect. Announces the device and carries boot diagnostics (firmware
+// build, IP, MAC, reset reason, signal, free heap) so the engine/web and you
+// can confirm the node booted and see why it last restarted.
+static void publishInit() {
+  char payload[248];
+  snprintf(payload, sizeof(payload),
+           "{\"id\":\"%s\",\"role\":\"%s\",\"event\":\"boot\",\"fw\":\"%s\","
+           "\"ip\":\"%s\",\"mac\":\"%s\",\"rst\":\"%s\",\"rssi\":%d,"
+           "\"heap\":%u,\"up\":%lu}",
+           DEVICE_ID, kRole, FW_VERSION, WiFi.localIP().toString().c_str(),
+           WiFi.macAddress().c_str(), ESP.getResetReason().c_str(),
+           WiFi.RSSI(), (unsigned)ESP.getFreeHeap(), (unsigned long)millis());
+  mqtt.publish(topicInit, payload, true);   // QoS 0, retained
+  Serial.printf_P(PSTR("[init] %s\n"), payload);
+}
+
 static bool mqttEnsure() {
   if (mqtt.connected()) return true;
   uint32_t nowMs = millis();
@@ -153,6 +174,7 @@ static bool mqttEnsure() {
   if (ok) {
     reconnectBackoffMs = 1000;
     mqtt.publish(topicStatus, "online", true);
+    if (!initSent) { publishInit(); initSent = true; }  // always once per boot
     Serial.println(F("[mqtt] connected"));
     ledBlink(2, 60);
   } else {
@@ -173,6 +195,7 @@ void setup() {
 
   snprintf(topicTelemetry, sizeof(topicTelemetry), "libnav/dev/%s/telemetry", DEVICE_ID);
   snprintf(topicStatus, sizeof(topicStatus), "libnav/dev/%s/status", DEVICE_ID);
+  snprintf(topicInit, sizeof(topicInit), "libnav/dev/%s/init", DEVICE_ID);
 
   // --- sensor ---
   Wire.begin();                    // SDA=D2/GPIO4, SCL=D1/GPIO5
