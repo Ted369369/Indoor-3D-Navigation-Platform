@@ -125,6 +125,18 @@ static bool wifiEnsure() {
     return true;
   }
   Serial.println(F("[wifi] failed, will retry"));
+  // Diagnostic: list the networks the ESP can actually see. The ESP8266 sees
+  // only 2.4 GHz WPA/WPA2 APs - if your hotspot is missing here it is on 5 GHz,
+  // WPA3, or has a different name. If it shows but won't join, check the pass.
+  int n = WiFi.scanNetworks();
+  Serial.printf_P(PSTR("[wifi] %d networks visible (2.4 GHz only):\n"), n);
+  for (int i = 0; i < n; i++) {
+    Serial.printf_P(PSTR("   %2d) ch%2d %4d dBm  %s%s\n"),
+                    i + 1, WiFi.channel(i), WiFi.RSSI(i), WiFi.SSID(i).c_str(),
+                    WiFi.encryptionType(i) == ENC_TYPE_NONE ? "  (open)" : "");
+  }
+  Serial.printf_P(PSTR("[wifi] wanted SSID: \"%s\" - is it listed above?\n"), WIFI_HOTSPOT_SSID);
+  WiFi.scanDelete();
   return false;
 }
 
