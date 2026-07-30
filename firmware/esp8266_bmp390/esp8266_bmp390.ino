@@ -31,6 +31,10 @@
 #include <Adafruit_Sensor.h>
 #include "Adafruit_BMP3XX.h"
 #include <time.h>
+// Credentials live in secrets.h and the CA cert in certs.h. Both are
+// git-ignored: copy secrets.h.example -> secrets.h and certs.h.example ->
+// certs.h, then fill them in. secrets.h defines WIFI_* and MQTT_HOST/USER/PASS.
+#include "secrets.h"
 #include "certs.h"
 
 // ------------------------- configuration -----------------------------------
@@ -40,15 +44,7 @@
 #define NODE_ROLE      ROLE_USER          // ROLE_REFERENCE for the fixed node
 #define DEVICE_ID      "NAV-001"          // unique per device; use "NAV-REF" for the reference
 
-#define WIFI_VENUE_SSID    "LibraryWiFi"
-#define WIFI_VENUE_PASS    "changeme"
-#define WIFI_HOTSPOT_SSID  "MyPhoneHotspot"
-#define WIFI_HOTSPOT_PASS  "changeme"
-
-#define MQTT_HOST      "xxxxxxxx.s1.eu.hivemq.cloud"   // from HiveMQ Cloud overview
-#define MQTT_PORT      8883
-#define MQTT_USER      "esp-node"
-#define MQTT_PASS      "changeme"
+#define MQTT_PORT      8883               // HiveMQ Cloud TLS port
 
 #define PUBLISH_HZ     2                  // fused telemetry rate
 #define SAMPLE_HZ      10                 // raw sensor sampling (median filtered)

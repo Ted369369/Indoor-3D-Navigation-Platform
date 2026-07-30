@@ -1,0 +1,22 @@
+/*
+ * Template for certs.h. Copy this file to certs.h (same folder) and paste the
+ * broker's root CA certificate between the R"EOF( ... )EOF" markers.
+ *
+ * HiveMQ Cloud uses Let's Encrypt, rooted at ISRG Root X1 (a PUBLIC cert, not a
+ * secret): download https://letsencrypt.org/certs/isrgrootx1.pem and paste it
+ * below. certs.h is git-ignored to keep per-deployment headers out of the repo;
+ * this template is tracked.
+ *
+ * Until a real certificate is installed the firmware falls back to
+ * setInsecure() and logs a warning: the connection is still encrypted but the
+ * broker is not authenticated.
+ */
+#pragma once
+
+static const char CA_CERT_PEM[] PROGMEM = R"EOF(
+PLACEHOLDER-PASTE-ISRG-ROOT-X1-PEM-HERE
+)EOF";
+
+inline bool isCaCertInstalled() {
+  return strstr_P(CA_CERT_PEM, PSTR("BEGIN CERTIFICATE")) != nullptr;
+}

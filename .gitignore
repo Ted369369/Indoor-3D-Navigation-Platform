@@ -1,6 +1,10 @@
 # secrets - never commit real credentials
 backend/.env
 
+# firmware credential / cert headers (keep the .h.example templates tracked)
+firmware/**/*.h
+!firmware/**/*.h.example
+
 # python
 __pycache__/
 *.pyc
