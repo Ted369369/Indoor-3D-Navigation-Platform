@@ -44,11 +44,29 @@ from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+
+def _load_env():
+    """Load backend/.env. Uses python-dotenv if present, else a tiny built-in
+    parser so the engine works without the extra dependency. Shell environment
+    variables always take precedence over .env."""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        return
+    except ImportError:
+        pass
+    env_path = Path(__file__).with_name(".env")
+    if not env_path.exists():
+        return
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+
+
+_load_env()
 
 try:
     from supabase import create_client as _create_supabase
