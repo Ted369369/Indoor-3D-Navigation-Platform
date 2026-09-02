@@ -35,6 +35,7 @@ QoS, retain flag, rate, publisher/subscriber, and full payload schemas.
 | `libnav/user/<uid>/control` | JSON | 1 | no | on event | engine → web |
 | `libnav/site/anchors` | JSON | 1 | yes | on calibration | web → engine |
 | `libnav/directory` | JSON | 0 | yes | on change / ≤10 s | engine → web |
+| `libnav/capacity` | JSON | 0 | yes | on change | engine → web |
 | `libnav/engine/status` | `online`/`offline` | 1 | yes | on change (LWT) | engine → web |
 
 ---
@@ -200,6 +201,15 @@ at least every 10 s).
   ],
   "ts": 1721631000000
 }
+```
+
+### `libnav/capacity`
+Live occupancy, broadcast to **all** clients. A dedicated **retained state**
+topic (unlike the per-user `control` events), republished only when the numbers
+change. Drives the "N/5" pill in the app's top bar.
+
+```json
+{ "active": 3, "waiting": 1, "max": 5, "ts": 1721631000000 }
 ```
 
 ### `libnav/engine/status`

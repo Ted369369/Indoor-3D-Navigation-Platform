@@ -68,6 +68,9 @@
       <button class="fchip" data-floor="5">5F</button>
       <button id="btnExplode" title="Exploded view" aria-label="Toggle exploded view">⇕</button>
     </nav>
+    <span id="capPill" class="cap-pill" hidden title="Active devices" aria-label="Active devices">
+      <span class="cap-ico">👥</span><span class="cap-count">0/5</span>
+    </span>
     <div class="conn" role="status" aria-label="Connection quality">
       <span id="connMqtt" class="dot" title="Server"></span>
       <span id="connGps" class="dot" title="GPS"></span>
@@ -264,6 +267,6 @@
   <div id="announcer" class="sr-only" aria-live="assertive"></div>
   <div id="toast" role="status"></div>
 
-  <script type="module" src="js/app.js?v=modes1"></script>
+  <script type="module" src="js/app.js?v=cap2"></script>
 </body>
 </html>

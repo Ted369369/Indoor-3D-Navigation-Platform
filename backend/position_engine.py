@@ -280,6 +280,7 @@ class Engine:
         self.ref_floor_z = 0.0                    # reference node sits on floor 2 (z=0)
         self._dir_key = None                      # last published directory fingerprint
         self._dir_last_pub = 0.0
+        self._cap_key = None                      # last published capacity (active, waiting)
         self.lock = threading.Lock()
         self.running = True
 
@@ -510,6 +511,23 @@ class Engine:
         for uid in [u for u, s in self.users.items()
                     if s.last_gps > 0 and now - s.last_gps > 900]:
             del self.users[uid]
+
+        still_waiting = sum(1 for u in waiting if not u.admitted)
+        self.publish_capacity(admitted_n, still_waiting, now)
+
+    def publish_capacity(self, active: int, waiting: int, now: float):
+        """Retained live occupancy for every client (a dedicated state topic,
+        unlike per-user /control events). Republished only when it changes."""
+        key = (active, waiting)
+        if key == self._cap_key:
+            return
+        self._cap_key = key
+        self.client.publish(
+            "libnav/capacity",
+            json.dumps({"active": active, "waiting": waiting,
+                        "max": MAX_ACTIVE_USERS, "ts": int(now * 1000)}),
+            qos=0, retain=True,
+        )
 
     def notify(self, uid: str, action: str, reason: str = "", slots: int = 0,
                active: int = 0, device: str = ""):

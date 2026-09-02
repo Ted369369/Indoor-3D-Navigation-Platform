@@ -2,12 +2,12 @@
  * Application orchestrator: boots the 3D scene, connectivity, chat intent,
  * voice guidance, friends, and connection-quality indicators.
  */
-import { MapScene } from "./map3d.js?v=modes1";
-import { Navigator } from "./nav.js?v=modes1";
-import { IntentEngine } from "./intent.js?v=modes1";
-import { Speaker, Listener, Guidance } from "./voice.js?v=modes1";
-import { Bus, GpsPublisher } from "./net.js?v=modes1";
-import { Social } from "./supa.js?v=modes1";
+import { MapScene } from "./map3d.js?v=cap2";
+import { Navigator } from "./nav.js?v=cap2";
+import { IntentEngine } from "./intent.js?v=cap2";
+import { Speaker, Listener, Guidance } from "./voice.js?v=cap2";
+import { Bus, GpsPublisher } from "./net.js?v=cap2";
+import { Social } from "./supa.js?v=cap2";
 
 const CFG = window.NAV_CONFIG;
 const $ = (id) => document.getElementById(id);
@@ -282,6 +282,10 @@ async function startCore(opts) {
       state.directory = JSON.parse(payload);
       renderDeviceList();
     } catch { /* ignore malformed */ }
+  });
+  // live occupancy pill (retained, so it fills in on connect)
+  bus.on("libnav/capacity", (t, payload) => {
+    try { updateCapacityPill(JSON.parse(payload)); } catch { /* ignore */ }
   });
   // telemetry of whichever unit is currently paired (wildcard + guard, so
   // re-pairing needs no re-subscription bookkeeping)
@@ -1076,6 +1080,20 @@ function updateSensorDot() {
     (age < 15000 ? `online, RSSI ${state.sensorRssi} dBm` : "no data");
 }
 
+/** Live occupancy pill in the top bar, fed by retained libnav/capacity. */
+function updateCapacityPill(cap) {
+  const el = $("capPill");
+  if (!el || !cap) return;
+  const active = cap.active ?? 0, max = cap.max ?? CFG.maxDevices;
+  el.hidden = false;
+  el.querySelector(".cap-count").textContent = `${active}/${max}`;
+  const full = active >= max;
+  el.classList.toggle("full", full);
+  el.title = full
+    ? `Library at capacity (${active}/${max})` + (cap.waiting ? `, ${cap.waiting} waiting` : "")
+    : `${active} of ${max} devices active`;
+}
+
 /* ============================== utils =================================== */
 function el(html) {
   const t = document.createElement("template");
@@ -1106,7 +1124,7 @@ window.__nav = { state, renderDeviceList, showLocalGps, setChatCollapsed,
   openZoneInfo, navigateTo, submitChat: () => submitChat(),
   zonesOf: () => nav?.zones,
   scene: () => scene,
-  setAppMode, distanceToLibrary,
+  setAppMode, distanceToLibrary, updateCapacityPill,
   feedFix: (fix) => { if (gps) gps.lastFix = fix; showLocalGps(fix); },
   floorVisibility: () => Object.fromEntries(
     Object.entries(scene.floorGroups).map(([lvl, g]) => [lvl, {

@@ -86,6 +86,15 @@ button { font-family: var(--font); cursor: pointer; }
 .dot.err { background: var(--red); box-shadow: 0 0 8px rgba(239, 83, 80, 0.6); }
 .latency { font-size: 11px; color: var(--muted); min-width: 44px; text-align: right; }
 
+.cap-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 999px; padding: 6px 11px; backdrop-filter: blur(12px);
+  font-size: 12px; font-weight: 600; color: var(--text);
+}
+.cap-pill .cap-ico { font-size: 13px; }
+.cap-pill.full { border-color: var(--amber); color: var(--amber); }
+
 /* ---------------- action rail ---------------- */
 #rail {
   position: fixed; right: 12px; top: 50%; transform: translateY(-60%);
