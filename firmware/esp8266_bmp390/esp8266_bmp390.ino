@@ -231,6 +231,7 @@ void setup() {
   snprintf(topicStatus, sizeof(topicStatus), "libnav/dev/%s/status", DEVICE_ID);
   snprintf(topicInit, sizeof(topicInit), "libnav/dev/%s/init", DEVICE_ID);
 
+  Serial.printf_P(PSTR("[stage] 1 sensor init\n"));
   // --- sensor ---
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   Wire.setClock(I2C_CLOCK_HZ);
@@ -254,6 +255,7 @@ void setup() {
   Serial.printf_P(PSTR("[bmp390] ready at 0x%02X (SDA=GPIO%d SCL=GPIO%d)\n"),
                   bmpAddr, I2C_SDA_PIN, I2C_SCL_PIN);
 
+  Serial.printf_P(PSTR("[stage] 2 wifi connect\n"));
   // --- network ---
   WiFi.mode(WIFI_STA);
   WiFi.persistent(false);
@@ -269,8 +271,13 @@ void setup() {
   WiFi.setAutoReconnect(true);
   WiFi.setSleepMode(WIFI_NONE_SLEEP);   // modem sleep makes some hotspots drop us
   wifiEnsure();
+  Serial.printf_P(PSTR("[stage] 3 ntp sync\n"));
   syncClock();
 
+  Serial.printf_P(PSTR("[stage] 4 tls setup\n"));
+  Serial.printf_P(PSTR("[mem] heap=%u  largest free block=%u\n"),
+                  (unsigned)ESP.getFreeHeap(),
+                  (unsigned)ESP.getMaxFreeBlockSize());
   // --- TLS trust ---
   if (isCaCertInstalled()) {
     static BearSSL::X509List caCert(CA_CERT_PEM);
@@ -308,6 +315,11 @@ void setup() {
   // PubSubClient defaults to a 256-byte packet; the init payload plus topic
   // exceeds that, so the boot message would silently never be sent.
   mqtt.setBufferSize(512);
+
+  Serial.printf_P(PSTR("[stage] 5 setup done -> loop\n"));
+  Serial.printf_P(PSTR("[mem] heap=%u  largest free block=%u\n"),
+                  (unsigned)ESP.getFreeHeap(),
+                  (unsigned)ESP.getMaxFreeBlockSize());
 }
 
 void loop() {
