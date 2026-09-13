@@ -280,33 +280,33 @@ void setup() {
                   (unsigned)ESP.getFreeHeap(),
                   (unsigned)ESP.getMaxFreeBlockSize());
   // --- TLS trust ---
-  // CA_CERT_PEM lives in PROGMEM (flash). On the ESP8266 that region only
-  // tolerates 32-bit aligned reads, but BearSSL parses the PEM with plain
-  // byte-wise pointer access - which faults and reboots the node. Copy the
-  // certificate into RAM first, parse it, then release the copy.
-  if (isCaCertInstalled()) {
-    size_t pemLen = strlen_P(CA_CERT_PEM);
-    char *pem = (char *)malloc(pemLen + 1);
-    const bool allocOk = (pem != nullptr);
-    bool trusted = false;
-    if (pem) {
-      memcpy_P(pem, CA_CERT_PEM, pemLen + 1);
-      trusted = caCertList.append(pem);
-      free(pem);                       // X509List keeps its own parsed copy
-    }
-    if (trusted) {
-      tlsClient.setTrustAnchors(&caCertList);
-      Serial.println(F("[tls] CA certificate validation enabled"));
-    } else {
-      tlsClient.setInsecure();
-      Serial.printf_P(PSTR("[tls] WARNING: could not load CA (%s) -> setInsecure()\n"),
-                      allocOk ? "parse failed" : "out of memory");
-    }
+  // CA_CERT_PEM lives in PROGMEM (flash), which on the ESP8266 only tolerates
+  // 32-bit aligned reads - but BearSSL parses the PEM with plain byte-wise
+  // pointer access, which faults and reboots the node. So copy it to RAM once
+  // and do everything on that copy. isCaCertInstalled() is deliberately not
+  // used either: strstr_P() expects its first argument in RAM, so handing it
+  // the PROGMEM certificate is the same unsafe flash read.
+  size_t pemLen = strlen_P(CA_CERT_PEM);
+  char *pem = (char *)malloc(pemLen + 1);
+  const bool allocOk = (pem != nullptr);
+  bool trusted = false, placeholder = true;
+  if (pem) {
+    memcpy_P(pem, CA_CERT_PEM, pemLen + 1);
+    placeholder = (strstr(pem, "BEGIN CERTIFICATE") == nullptr);
+    if (!placeholder) trusted = caCertList.append(pem);
+    free(pem);                         // X509List keeps its own parsed copy
+  }
+  if (trusted) {
+    tlsClient.setTrustAnchors(&caCertList);
+    Serial.println(F("[tls] CA certificate validation enabled"));
   } else {
-    // First-run convenience only. Install the CA (see docs/SETUP.md) before
-    // any real deployment: without it the TLS peer is not authenticated.
+    // Without a CA the link is still encrypted but the broker is not
+    // authenticated. Fine for a first run; install the CA before deployment.
     tlsClient.setInsecure();
-    Serial.println(F("[tls] WARNING: certs.h placeholder detected -> setInsecure()"));
+    const char *why = !allocOk ? "out of memory"
+                    : placeholder ? "certs.h still holds the placeholder"
+                                  : "certificate parse failed";
+    Serial.printf_P(PSTR("[tls] WARNING: no CA (%s) -> setInsecure()\n"), why);
   }
 
   // --- TLS memory ---
