@@ -220,7 +220,12 @@ void setup() {
   digitalWrite(STATUS_LED, HIGH);
   Serial.begin(115200);
   delay(200);
-  Serial.printf_P(PSTR("\n[boot] libnav node %s role=%s\n"), DEVICE_ID, kRole);
+  Serial.printf_P(PSTR("\n[boot] libnav node %s role=%s fw=%s\n"),
+                  DEVICE_ID, kRole, FW_VERSION);
+  // In a reboot loop this line is the diagnosis: "Exception" / "Soft WDT
+  // reset" = a crash; "Power on" / "External System" = supply or reset pin.
+  Serial.printf_P(PSTR("[boot] reset reason: %s | free heap: %u bytes\n"),
+                  ESP.getResetReason().c_str(), (unsigned)ESP.getFreeHeap());
 
   snprintf(topicTelemetry, sizeof(topicTelemetry), "libnav/dev/%s/telemetry", DEVICE_ID);
   snprintf(topicStatus, sizeof(topicStatus), "libnav/dev/%s/status", DEVICE_ID);
@@ -284,7 +289,13 @@ void setup() {
   // memory and the node resets mid-handshake - which looks exactly like
   // "connects to the hotspot, then drops and reconnects forever".
   // Negotiate a smaller maximum fragment length when the broker supports it.
-  bool mfln = BearSSL::WiFiClientSecure::probeMaxFragmentLength(MQTT_HOST, MQTT_PORT, 1024);
+  // The probe does a real handshake, so only run it when there is room.
+  bool mfln = false;
+  if (ESP.getFreeHeap() > 20000) {
+    mfln = BearSSL::WiFiClientSecure::probeMaxFragmentLength(MQTT_HOST, MQTT_PORT, 1024);
+  } else {
+    Serial.println(F("[tls] heap low - skipping MFLN probe"));
+  }
   Serial.printf_P(PSTR("[tls] MFLN(1024) supported by broker: %s\n"), mfln ? "yes" : "no");
   if (mfln) tlsClient.setBufferSizes(1024, 1024);
   else      tlsClient.setBufferSizes(4096, 1024);
