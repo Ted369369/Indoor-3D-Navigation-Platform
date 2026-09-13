@@ -65,6 +65,7 @@
 ESP8266WiFiMulti wifiMulti;
 WiFiEventHandler wifiDisconnectHandler;   // must stay in scope for the callback
 BearSSL::WiFiClientSecure tlsClient;
+BearSSL::X509List caCertList;             // broker trust anchor
 PubSubClient mqtt(tlsClient);
 Adafruit_BMP3XX bmp;
 
@@ -279,10 +280,28 @@ void setup() {
                   (unsigned)ESP.getFreeHeap(),
                   (unsigned)ESP.getMaxFreeBlockSize());
   // --- TLS trust ---
+  // CA_CERT_PEM lives in PROGMEM (flash). On the ESP8266 that region only
+  // tolerates 32-bit aligned reads, but BearSSL parses the PEM with plain
+  // byte-wise pointer access - which faults and reboots the node. Copy the
+  // certificate into RAM first, parse it, then release the copy.
   if (isCaCertInstalled()) {
-    static BearSSL::X509List caCert(CA_CERT_PEM);
-    tlsClient.setTrustAnchors(&caCert);
-    Serial.println(F("[tls] CA certificate validation enabled"));
+    size_t pemLen = strlen_P(CA_CERT_PEM);
+    char *pem = (char *)malloc(pemLen + 1);
+    const bool allocOk = (pem != nullptr);
+    bool trusted = false;
+    if (pem) {
+      memcpy_P(pem, CA_CERT_PEM, pemLen + 1);
+      trusted = caCertList.append(pem);
+      free(pem);                       // X509List keeps its own parsed copy
+    }
+    if (trusted) {
+      tlsClient.setTrustAnchors(&caCertList);
+      Serial.println(F("[tls] CA certificate validation enabled"));
+    } else {
+      tlsClient.setInsecure();
+      Serial.printf_P(PSTR("[tls] WARNING: could not load CA (%s) -> setInsecure()\n"),
+                      allocOk ? "parse failed" : "out of memory");
+    }
   } else {
     // First-run convenience only. Install the CA (see docs/SETUP.md) before
     // any real deployment: without it the TLS peer is not authenticated.
