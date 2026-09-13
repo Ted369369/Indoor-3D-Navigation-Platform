@@ -32,6 +32,7 @@ concurrency cap.
 | `supabase/schema.sql` | Auth-linked profiles, friendships, pairings, RLS |
 | `docs/SETUP.md` | Full deployment guide |
 | `docs/MQTT_TOPICS.md` | Complete MQTT topic reference (payloads, QoS, retain) |
+| `docs/TROUBLESHOOTING_LOG.md` | Every problem hit during development, root causes and fixes |
 | `raw_map/` | Original hand-drawn plans |
 
 Pairing is discovery-based: powered-on ESP units near you are listed live in
