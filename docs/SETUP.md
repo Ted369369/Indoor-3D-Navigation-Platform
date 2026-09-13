@@ -50,7 +50,13 @@ work; friend features hide themselves).
 
 Boards: any ESP8266 (NodeMCU, Wemos D1 mini). Sensor: BMP390 breakout.
 
-Wiring: `VIN→3V3  GND→GND  SCL→D1(GPIO5)  SDA→D2(GPIO4)`
+Wiring (I²C, generic GPIO numbers): `VIN→3V3  GND→GND  SDA→GPIO4  SCL→GPIO5`
+
+On a NodeMCU / Wemos silkscreen those are **D2 = GPIO4 (SDA)** and
+**D1 = GPIO5 (SCL)**. To use different pins, change `I2C_SDA_PIN` /
+`I2C_SCL_PIN` at the top of the sketch — no other edits needed. The firmware
+probes I²C address `0x77` first and falls back to `0x76` (boards with SDO tied
+to GND), and prints which address and pins it found on at boot.
 
 1. Arduino IDE → Boards Manager → install **esp8266** core.
    Library Manager → install **Adafruit BMP3XX** (accept dependencies) and

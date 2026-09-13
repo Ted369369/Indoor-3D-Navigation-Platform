@@ -11,8 +11,10 @@
  *   payload {"id","role","seq","p"(Pa),"t"(degC),"rssi","up"(ms)}
  * Presence via retained Last Will on libnav/dev/<DEVICE_ID>/status.
  *
- * Wiring (ESP8266 NodeMCU / Wemos D1 mini):
- *   BMP390 VIN -> 3V3, GND -> GND, SCL -> D1 (GPIO5), SDA -> D2 (GPIO4)
+ * Wiring (any ESP8266 board - pins given as generic GPIO numbers):
+ *   BMP390 VIN -> 3V3, GND -> GND,
+ *   BMP390 SDA -> GPIO4, SCL -> GPIO5   (change via I2C_SDA_PIN / I2C_SCL_PIN)
+ *   On NodeMCU / Wemos silkscreen those are D2 (GPIO4) and D1 (GPIO5).
  *
  * Libraries (Arduino Library Manager):
  *   - Adafruit BMP3XX Library (+ Adafruit Unified Sensor, Adafruit BusIO)
@@ -45,6 +47,15 @@
 #define DEVICE_ID      "NAV-001"          // unique per device; use "NAV-REF" for the reference
 
 #define MQTT_PORT      8883               // HiveMQ Cloud TLS port
+
+// I2C to the BMP390 - generic GPIO numbers so this builds on any ESP8266 board
+// (bare ESP-12E modules have no D1/D2 aliases). Defaults are the ESP8266's
+// standard I2C pins: GPIO4 = D2 = SDA, GPIO5 = D1 = SCL.
+#define I2C_SDA_PIN    4
+#define I2C_SCL_PIN    5
+#define I2C_CLOCK_HZ   100000UL           // 100 kHz standard mode
+#define BMP390_ADDR_A  0x77               // default (SDO high / floating)
+#define BMP390_ADDR_B  0x76               // alternate (SDO tied to GND)
 
 #define PUBLISH_HZ     2                  // fused telemetry rate
 #define SAMPLE_HZ      10                 // raw sensor sampling (median filtered)
@@ -198,17 +209,27 @@ void setup() {
   snprintf(topicInit, sizeof(topicInit), "libnav/dev/%s/init", DEVICE_ID);
 
   // --- sensor ---
-  Wire.begin();                    // SDA=D2/GPIO4, SCL=D1/GPIO5
-  if (!bmp.begin_I2C()) {          // tries 0x77 then 0x76
-    Serial.println(F("[bmp390] not found - check wiring"));
-    while (true) { ledBlink(1, 500); }
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+  Wire.setClock(I2C_CLOCK_HZ);
+  // Adafruit's begin_I2C() only probes the address it is given, so try the
+  // default first and then the SDO-to-GND alternate before giving up.
+  uint8_t bmpAddr = BMP390_ADDR_A;
+  if (!bmp.begin_I2C(bmpAddr)) {
+    bmpAddr = BMP390_ADDR_B;
+    if (!bmp.begin_I2C(bmpAddr)) {
+      Serial.printf_P(PSTR("[bmp390] not found on SDA=GPIO%d SCL=GPIO%d "
+                           "(tried 0x%02X and 0x%02X) - check wiring\n"),
+                      I2C_SDA_PIN, I2C_SCL_PIN, BMP390_ADDR_A, BMP390_ADDR_B);
+      while (true) { ledBlink(1, 500); }
+    }
   }
   // High-resolution pressure for 3.8 m floor separation (~46 Pa/floor).
   bmp.setPressureOversampling(BMP3_OVERSAMPLING_8X);
   bmp.setTemperatureOversampling(BMP3_OVERSAMPLING_2X);
   bmp.setIIRFilterCoeff(BMP3_IIR_FILTER_COEFF_3);
   bmp.setOutputDataRate(BMP3_ODR_25_HZ);
-  Serial.println(F("[bmp390] ready"));
+  Serial.printf_P(PSTR("[bmp390] ready at 0x%02X (SDA=GPIO%d SCL=GPIO%d)\n"),
+                  bmpAddr, I2C_SDA_PIN, I2C_SCL_PIN);
 
   // --- network ---
   WiFi.mode(WIFI_STA);
