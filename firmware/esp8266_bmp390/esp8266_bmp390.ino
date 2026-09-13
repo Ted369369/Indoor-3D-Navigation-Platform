@@ -63,6 +63,7 @@
 
 // ------------------------- globals ------------------------------------------
 ESP8266WiFiMulti wifiMulti;
+WiFiEventHandler wifiDisconnectHandler;   // must stay in scope for the callback
 BearSSL::WiFiClientSecure tlsClient;
 PubSubClient mqtt(tlsClient);
 Adafruit_BMP3XX bmp;
@@ -125,6 +126,23 @@ static void syncClock() {
     now = time(nullptr);
   }
   Serial.printf_P(PSTR("\n[time] epoch=%ld\n"), (long)now);
+}
+
+/* Human-readable Wi-Fi disconnect reasons (ESP8266 WIFI_DISCONNECT_REASON_*). */
+static const char *wifiReason(uint8_t r) {
+  switch (r) {
+    case 1:   return "unspecified";
+    case 2:   return "auth expired";
+    case 4:   return "assoc expired - AP dropped us (range / power save)";
+    case 8:   return "deauthenticated by AP";
+    case 15:  return "4-way handshake timeout - wrong password?";
+    case 200: return "beacon timeout - AP vanished or signal too weak";
+    case 201: return "no AP found";
+    case 202: return "auth failed";
+    case 203: return "assoc failed";
+    case 204: return "handshake timeout";
+    default:  return "other";
+  }
 }
 
 static bool wifiEnsure() {
@@ -236,6 +254,15 @@ void setup() {
   WiFi.persistent(false);
   wifiMulti.addAP(WIFI_VENUE_SSID, WIFI_VENUE_PASS);
   wifiMulti.addAP(WIFI_HOTSPOT_SSID, WIFI_HOTSPOT_PASS);
+  // Report every drop with a decoded reason - tells apart "AP kicked us" from
+  // "we reset" when the node appears to connect/disconnect in a loop.
+  wifiDisconnectHandler = WiFi.onStationModeDisconnected(
+      [](const WiFiEventStationModeDisconnected &e) {
+        Serial.printf_P(PSTR("[wifi] disconnected: reason=%d (%s)\n"),
+                        (int)e.reason, wifiReason((uint8_t)e.reason));
+      });
+  WiFi.setAutoReconnect(true);
+  WiFi.setSleepMode(WIFI_NONE_SLEEP);   // modem sleep makes some hotspots drop us
   wifiEnsure();
   syncClock();
 
@@ -251,9 +278,25 @@ void setup() {
     Serial.println(F("[tls] WARNING: certs.h placeholder detected -> setInsecure()"));
   }
 
+  // --- TLS memory ---
+  // BearSSL defaults to 16 KB receive + 16 KB transmit buffers. The ESP8266 has
+  // only ~40 KB of usable heap, so the allocation fails or leaves too little
+  // memory and the node resets mid-handshake - which looks exactly like
+  // "connects to the hotspot, then drops and reconnects forever".
+  // Negotiate a smaller maximum fragment length when the broker supports it.
+  bool mfln = BearSSL::WiFiClientSecure::probeMaxFragmentLength(MQTT_HOST, MQTT_PORT, 1024);
+  Serial.printf_P(PSTR("[tls] MFLN(1024) supported by broker: %s\n"), mfln ? "yes" : "no");
+  if (mfln) tlsClient.setBufferSizes(1024, 1024);
+  else      tlsClient.setBufferSizes(4096, 1024);
+  Serial.printf_P(PSTR("[mem] free heap after TLS setup: %u bytes\n"),
+                  (unsigned)ESP.getFreeHeap());
+
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setKeepAlive(15);
   mqtt.setSocketTimeout(5);
+  // PubSubClient defaults to a 256-byte packet; the init payload plus topic
+  // exceeds that, so the boot message would silently never be sent.
+  mqtt.setBufferSize(512);
 }
 
 void loop() {
