@@ -35,6 +35,54 @@ static const char *knownDevice(uint8_t addr) {
   }
 }
 
+/* Read one register. Returns false if the device did not answer. */
+static bool readReg(uint8_t addr, uint8_t reg, uint8_t *value) {
+  Wire.beginTransmission(addr);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) return false;   // repeated start
+  if (Wire.requestFrom((int)addr, 1) != 1) return false;
+  *value = Wire.read();
+  return true;
+}
+
+/*
+ * A device answering at 0x76/0x77 is NOT proof of a BMP390 - BMP280 and BME280
+ * live at the same addresses and are a very common mix-up. Read the chip-ID
+ * registers so we can say which part is actually fitted.
+ *   BMP3xx: register 0x00 -> 0x60 = BMP390, 0x50 = BMP388
+ *   BMP2xx: register 0xD0 -> 0x58 = BMP280, 0x60 = BME280
+ * Returns true only when a genuine BMP3xx is confirmed.
+ */
+static bool identifyPressureSensor(uint8_t addr) {
+  uint8_t id3 = 0, id2 = 0;
+  bool has3 = readReg(addr, 0x00, &id3);
+  bool has2 = readReg(addr, 0xD0, &id2);
+
+  Serial.printf("      chip-ID probe: reg0x00=");
+  if (has3) Serial.printf("0x%02X", id3); else Serial.print("--");
+  Serial.printf("  reg0xD0=");
+  if (has2) Serial.printf("0x%02X", id2); else Serial.print("--");
+  Serial.println();
+
+  if (has3 && id3 == 0x60) { Serial.println(F("      => BMP390 confirmed.")); return true; }
+  if (has3 && id3 == 0x50) {
+    Serial.println(F("      => BMP388 (works with the same Adafruit BMP3XX library)."));
+    return true;
+  }
+  if (has2 && id2 == 0x58) {
+    Serial.println(F("      => BMP280 - WRONG SENSOR. This firmware needs a BMP390;"));
+    Serial.println(F("         a BMP280 will never be accepted by Adafruit_BMP3XX."));
+    return false;
+  }
+  if (has2 && id2 == 0x60) {
+    Serial.println(F("      => BME280 - WRONG SENSOR (temp/humidity/pressure part)."));
+    Serial.println(F("         This firmware needs a BMP390."));
+    return false;
+  }
+  Serial.println(F("      => unrecognised chip ID - not a BMP3xx."));
+  return false;
+}
+
 /* Both lines must idle HIGH - that is what the pull-up resistors do. */
 static bool checkIdleLevels() {
   pinMode(I2C_SDA_PIN, INPUT);
@@ -101,7 +149,8 @@ void loop() {
   Serial.println(F("Scanning 0x01..0x7E ..."));
 
   uint8_t found = 0, errors = 0;
-  bool bmpSeen = false;
+  bool pressureAddrSeen = false;   // something answered at 0x76/0x77
+  bool bmp3Confirmed = false;      // ...and its chip ID really is a BMP3xx
   uint8_t bmpAddr = 0;
 
   for (uint8_t addr = 1; addr < 127; addr++) {
@@ -114,7 +163,11 @@ void loop() {
       if (name) Serial.printf("   <- %s", name);
       Serial.println();
       found++;
-      if (addr == 0x76 || addr == 0x77) { bmpSeen = true; bmpAddr = addr; }
+      if (addr == 0x76 || addr == 0x77) {
+        pressureAddrSeen = true;
+        bmpAddr = addr;
+        if (identifyPressureSensor(addr)) bmp3Confirmed = true;
+      }
     } else if (err == 4) {                // bus-level fault, not a plain NACK
       Serial.printf("  !!! 0x%02X unknown error (possible bus fault)\n", addr);
       errors++;
@@ -126,8 +179,12 @@ void loop() {
   if (errors) Serial.printf(", %u bus error(s)", errors);
   Serial.println();
 
-  if (bmpSeen) {
+  if (bmp3Confirmed) {
     Serial.printf("BMP390      : OK at 0x%02X - the main firmware will find it.\n", bmpAddr);
+  } else if (pressureAddrSeen) {
+    Serial.printf("BMP390      : a device answers at 0x%02X but it is NOT a BMP3xx\n", bmpAddr);
+    Serial.println(F("              (see the chip-ID line above). Fit a real BMP390,"));
+    Serial.println(F("              or switch to the library matching that part."));
   } else if (found == 0) {
     Serial.println(F("BMP390      : NOT FOUND - nothing at all is on the bus."));
     Serial.println(F("  Check, in order:"));
