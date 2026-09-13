@@ -4,9 +4,9 @@
  */
 window.NAV_CONFIG = {
   // HiveMQ Cloud WebSocket endpoint (Overview page > WebSocket port 8884)
-  mqttUrl: "wss://xxxxxxxx.s1.eu.hivemq.cloud:8884/mqtt",
+  mqttUrl:  "wss://17ca42eb3a294628a3bca9567efee34e.s1.eu.hivemq.cloud:8884/mqtt",
   mqttUser: "webapp",
-  mqttPass: "changeme",
+  mqttPass: "pw5066pw",
 
   // Supabase project (Settings > API). Leave empty to disable friends/auth.
   supabaseUrl: "",
