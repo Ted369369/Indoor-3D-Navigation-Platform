@@ -79,6 +79,19 @@ to GND), and prints which address and pins it found on at boot.
    automatically and listed in the app's pairing picker, and the label lets a
    visitor match the physical unit in their hand to the on-screen entry.
 
+### If the BMP390 is not detected
+
+Flash `firmware/i2c_scanner/i2c_scanner.ino` instead — a standalone I²C
+diagnostic that prints, every 3 seconds:
+
+- **idle levels** on SDA/SCL (verifies the pull-up resistors),
+- an automatic **bus recovery** attempt if SDA is stuck low,
+- a full **address scan**, naming anything it finds and saying explicitly
+  whether the BMP390 answered at `0x77` or `0x76`.
+
+It uses the same pins as the main firmware, so a pass here means the main
+sketch will find the sensor too.
+
 ## 4. Position engine (5 min)
 
 Runs anywhere with Python 3.10+ and internet (a PC, Raspberry Pi, or small VM):
