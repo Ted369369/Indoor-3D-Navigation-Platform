@@ -25,6 +25,7 @@ dead ends are written down too.
 | 15 | Firmware | **Joins hotspot, then drops forever** | **CA certificate in `PROGMEM` crashes BearSSL** | `6823f26` |
 | 16 | Firmware | Boot message never arrived | PubSubClient's 256-byte packet limit | `8771a0f` |
 | 17 | Web | Sensor never showed up in the app | `config.js` still had placeholders on Pages | `1b24e56` |
+| 18 | Web | "passports" routed to the adult books | First substring match won, and "passports" contains "sports" | `4063702` |
 
 ---
 
@@ -218,6 +219,20 @@ password and limited permissions, then push. `1b24e56`
   accuracy, a limit on how far it can jump per update (one bad fix moves it less
   than 1.5 m), ignoring fixes worse than 100 m, and snapping to corridors once
   calibrated. `03fcf39`, `00d054a`
+
+### 18. "passports" sent people to the adult books
+
+**Symptom.** While adding Yorba Linda, typing "passports" started a route
+upstairs to the adult reading room instead of to the passport office next to
+the lobby.
+
+**Cause.** The search checked whether the query *contained* a known term and
+stopped at the first row that matched. "sports" is listed earlier (arts and
+sports books) and "passports" contains "sports", so it won. Taipei never
+showed it because no Taipei term happened to hide inside another.
+
+**Fix.** Look at every row and keep the longest matching term, with an exact
+match beating everything. `4063702`
 
 ### 7. The library step wouldn't submit
 
