@@ -65,7 +65,10 @@ the top of the sketch. The firmware tries address `0x77` first, then `0x76`
    the Library Manager.
 2. In `esp8266_bmp390.ino`, set `DEVICE_ID`, different for every unit.
    Carried sensors are `NAV-001` to `NAV-005`; the reference is `NAV-REF`
-   with `NODE_ROLE ROLE_REFERENCE`.
+   with `NODE_ROLE ROLE_REFERENCE`. Set `SITE_ID` to the library the sensor
+   is used in (`main` for Taipei, `yorba-linda` for Yorba Linda). Every library
+   needs its own reference sensor on its lowest floor, and ids have to be
+   unique across libraries (e.g. `YL-001`, `YL-REF`).
 3. Copy `secrets.h.example` to `secrets.h` next to the sketch and fill it in
    (it's git-ignored):
    - Wi-Fi: the library network first, your phone hotspot as the fallback.
@@ -77,8 +80,8 @@ the top of the sketch. The firmware tries address `0x77` first, then `0x76`
    verify the broker and prints a warning. Do this before using it for real.
 5. Flash it and open the serial monitor at 115200 baud. You should see Wi-Fi,
    NTP and MQTT connect. The LED blinks on every publish (twice a second).
-6. Put `NAV-REF` anywhere on **1F** on a USB power adapter and leave it there.
-   Stick a label with the `DEVICE_ID` on each carried sensor. The app lists
+6. Put the reference sensor anywhere on **1F** on a USB power adapter and
+   leave it there. Stick a label with the `DEVICE_ID` on each carried sensor. The app lists
    sensors that are switched on, and the label is how a visitor knows which
    entry is the one in their hand.
 
@@ -106,17 +109,19 @@ copy .env.example .env                              # then fill in .env
 python position_engine.py
 ```
 
-You should see `mqtt connected` and `map model loaded`, then a line each time
-someone is admitted or changes floor. At most 5 users are active
-(`MAX_ACTIVE_USERS=5`); a sixth phone sees the waiting screen until someone
-leaves.
+The engine loads every library marked `available` in
+`web/data/libraries.json`. You should see a `library ...` and `map model loaded`
+line for each, then `mqtt connected`, then a line each time someone is admitted
+or changes floor. Each library allows 5 active users (`MAX_ACTIVE_USERS=5`); a
+sixth phone in the same library sees the waiting screen until someone leaves.
 
 ### Testing without hardware
 
 `python simulator.py --users 2` fakes the reference sensor plus visitors
 walking between floors. Their `SIM-xxx` units show up in the sensor list like
-real ones. This is only for working at a desk; stop it before real use. It
-gives back its slots as soon as it exits.
+real ones. Add `--lib yorba-linda` to simulate Yorba Linda instead (units
+`SIM-YL-001` and up). This is only for working at a desk; stop it before real
+use. It gives back its slots as soon as it exits.
 
 ## 5. Web app (10 min)
 
@@ -127,8 +132,8 @@ gives back its slots as soon as it exits.
    pages, except on localhost.
    To try it locally: `python -m http.server 8123 --directory web`.
 3. On a phone the first screens are:
-   - **Pick a library.** There's only one for now; see "Adding a library"
-     below.
+   - **Pick a library.** Taipei and Yorba Linda are mapped; see "Adding a
+     library" below.
    - **Your name**, plus low-vision mode or step-free routes if you need them.
      Allow location access when the browser asks.
    - **How to locate you:**
@@ -148,12 +153,14 @@ Settings (the sliders button) has a **Mode** switch:
 - **Test** (default): your marker shows wherever you are, placed relative to
   where you started. Useful for demos away from the building.
 - **Production**: your marker only shows when the phone is within **200 m of
-  the library** (centre `25.029137, 121.53819`). Further away the marker is
+  the library** (Taipei centre `25.029137, 121.53819`, Yorba Linda
+  `33.890775, -117.810613`). Further away the marker is
   hidden and a notice says how far you are. Position uses the real building
   coordinates. Use this for the public site.
 
-The centre and radius are `site.center` and `site.geofenceRadius` in
-`web/data/map_model.json`.
+The centre and radius are `site.center` and `site.geofenceRadius` in the
+library's model file (`web/data/map_model.json` for Taipei,
+`web/data/yorba_linda.json` for Yorba Linda).
 
 ## Map calibration (once, 5 min)
 
@@ -164,7 +171,8 @@ The map has to know where the building is:
    plan) and tap "Use my location". Do the same at the **north-east corner**
    (50 m along the top edge). You can also paste coordinates from Google Maps.
 3. Save. The points go to the engine as a retained MQTT message and apply to
-   everyone straight away.
+   everyone in that library straight away. Each library is calibrated
+   separately.
 
 ## Notes
 
@@ -192,13 +200,23 @@ The map has to know where the building is:
   `web/photos/README.md`, and only use photos you're allowed to publish.
 - **Editing the map.** Outlines, zones (with optional `desc` and `photo`), the
   walkable paths, the stair cores and the class-number-to-zone table are all in
-  `web/data/map_model.json`. Coordinates are in metres: x from 0 to 50 west to
-  east, y from 0 to 35 from the top of the drawing to the bottom. The engine
-  reads the same file, so restart it after editing.
+  the library's model file. Coordinates are in metres, x west to east and y
+  from the top of the drawing to the bottom (Taipei is 50 x 35 m, Yorba Linda
+  98 x 44 m). The engine reads the same files, so restart it after editing.
 - **Adding a library.** Add an entry to `web/data/libraries.json` (`id`,
   `name`, `location`, `model` pointing at its map file, `available: true`) and
-  put its map file next to `map_model.json`. It appears on the first screen.
-  Entries with `available: false` show greyed out as "Soon".
+  put its map file next to `map_model.json`. It appears on the first screen and
+  the engine picks it up on its next start. Entries with `available: false`
+  show greyed out as "Soon". Besides floors, zones, paths and connectors, a
+  model carries everything that differs between buildings:
+  - `site.start`: where routes begin before there's a position
+  - `site.cores`: what the stair cores and elevator are called
+  - `site.floorLanding`: where "go to floor N" takes you
+  - `site.quickChips`, `site.examples`, `site.searchHint`: chat suggestions
+  - `keywords` and `intents`: the search words
+  - `demoWalk`: the loop the simulator walks
+  See [MAPS.md](MAPS.md) for how the two existing maps were made.
 - **Adding search words.** Insert rows into the Supabase `keywords` table
   (term, aliases, zone_id). Phones pick them up the next time they load the
-  app. The built-in word list is in `web/js/intent.js`.
+  app; rows only apply in the library that has that zone. The built-in word
+  lists are the `keywords` arrays in each model file.

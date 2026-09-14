@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 Library 3D Navigation - device simulator
-========================================
-Exercises the whole stack with zero hardware: simulates the fixed reference
+
+Tests the whole stack without hardware: fakes a library's fixed reference
 node plus N walking visitors (phone GPS + carried ESP8266 pressure).
 
-Each simulated visitor walks a loop across floors 2 -> 4 -> 5 and back,
+Each simulated visitor walks the loop in the model's "demoWalk" list,
 publishing:
   libnav/user/sim-user-<n>/gps        (1 Hz, with realistic GPS noise)
   libnav/user/sim-user-<n>/pair       (retained, once)
@@ -13,8 +13,9 @@ publishing:
   libnav/dev/SIM-REF/telemetry        (2 Hz reference baseline)
 
 Usage:
-  python simulator.py            # 2 visitors
-  python simulator.py --users 5  # test the capacity limit
+  python simulator.py                    # 2 visitors in Taipei
+  python simulator.py --users 5          # test the capacity limit
+  python simulator.py --lib yorba-linda  # Yorba Linda (ids SIM-YL-001 ...)
 
 Watch the result in the web app: simulated users appear as friends would
 (subscribe to their pos topics), or check the engine log output.
@@ -63,9 +64,7 @@ MQTT_USER = os.getenv("MQTT_USER", "")
 MQTT_PASS = os.getenv("MQTT_PASS", "")
 MQTT_TLS = os.getenv("MQTT_TLS", "1") == "1"
 
-MAP_MODEL_PATH = Path(
-    os.getenv("MAP_MODEL_PATH", Path(__file__).parent.parent / "web" / "data" / "map_model.json")
-)
+LIBRARIES_PATH = Path(__file__).parent.parent / "web" / "data" / "libraries.json"
 
 SEA_LEVEL_PA = 101325.0
 R_GAS, G0, M_AIR = 8.3145, 9.80665, 0.0289644
@@ -81,9 +80,11 @@ def pressure_at(z: float) -> float:
 class Walker:
     """Walks the nav graph nodes of each floor in a fixed scripted loop."""
 
-    def __init__(self, idx: int, model: dict):
-        self.uid = f"sim-user-{idx}"
-        self.dev = f"SIM-{idx:03d}"
+    def __init__(self, idx: int, model: dict, lib: str):
+        # Taipei keeps the original ids; other libraries get a short prefix
+        tag = "" if lib == "main" else "".join(w[0] for w in lib.split("-")).upper() + "-"
+        self.uid = f"sim-user-{idx}" if not tag else f"sim-{lib}-user-{idx}"
+        self.dev = f"SIM-{tag}{idx:03d}"
         site = model["site"]
         self.geo_origin = site["geoAnchors"]["origin"]
         self.geo_xaxis = site["geoAnchors"]["xAxis"]
@@ -92,18 +93,11 @@ class Walker:
             lvl: {n["id"]: n for n in floor["nodes"]}
             for lvl, floor in model["floors"].items()
         }
-        route = [
-            ("2", ["n2-b", "n2-south", "n2-a", "n2-hall", "n2-esc"]),
-            ("4", ["n4-esc", "n4-f", "n4-c", "n4-b", "n4-ds", "n4-hall", "n4-esc"]),
-            ("5", ["n5-esc", "n5-hall", "n5-a", "n5-d", "n5-j", "n5-a", "n5-hall", "n5-esc"]),
-            ("4", ["n4-esc", "n4-hall", "n4-elev"]),
-            ("2", ["n2-elev", "n2-south", "n2-b"]),
-        ]
+        # the loop to walk is part of each library's model ("demoWalk")
         self.waypoints: list[tuple[str, float, float]] = []
-        for lvl, ids in route:
-            for nid in ids:
-                n = nodes[lvl][nid]
-                self.waypoints.append((lvl, n["x"], n["y"]))
+        for lvl, nid in model["demoWalk"]:
+            n = nodes[lvl][nid]
+            self.waypoints.append((lvl, n["x"], n["y"]))
         # offset walkers so they don't stack on the same waypoint
         self.progress = (idx * 3.7) % len(self.waypoints)
         self.speed = 1.0 + random.uniform(-0.2, 0.2)  # m/s
@@ -140,10 +134,16 @@ class Walker:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--users", type=int, default=2, help="number of simulated visitors")
+    parser.add_argument("--lib", default="main", help="library id from web/data/libraries.json")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s sim: %(message)s")
-    model = json.loads(MAP_MODEL_PATH.read_text(encoding="utf-8"))
+    catalog = json.loads(LIBRARIES_PATH.read_text(encoding="utf-8"))
+    entry = next((l for l in catalog["libraries"] if l["id"] == args.lib and l.get("model")), None)
+    if not entry:
+        raise SystemExit(f"unknown library {args.lib!r}")
+    model = json.loads((LIBRARIES_PATH.parent.parent / entry["model"]).read_text(encoding="utf-8"))
+    ref_id = "SIM-REF" if args.lib == "main" else f"SIM-REF-{args.lib}"
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="libnav-simulator")
     if MQTT_USER:
@@ -153,11 +153,13 @@ def main():
     client.connect(MQTT_HOST, MQTT_PORT, keepalive=20)
     client.loop_start()
 
-    walkers = [Walker(i + 1, model) for i in range(args.users)]
+    walkers = [Walker(i + 1, model, args.lib) for i in range(args.users)]
     for w in walkers:
-        client.publish(f"libnav/user/{w.uid}/pair", json.dumps({"device": w.dev}), qos=1, retain=True)
+        client.publish(f"libnav/user/{w.uid}/pair",
+                       json.dumps({"device": w.dev, "lib": args.lib}), qos=1, retain=True)
         client.publish(f"libnav/user/{w.uid}/presence", "online", qos=1, retain=True)
-    log.info("simulating %d visitors + reference node against %s", args.users, MQTT_HOST)
+    log.info("simulating %d visitors + reference node in %s against %s",
+             args.users, args.lib, MQTT_HOST)
 
     seq = 0
     last_gps = 0.0
@@ -167,9 +169,9 @@ def main():
             now = time.time()
             dt, last = now - last, now
 
-            # reference node: fixed at floor 2 (z = 0) with slight sensor noise
-            client.publish("libnav/dev/SIM-REF/telemetry", json.dumps({
-                "id": "SIM-REF", "role": "reference", "seq": seq,
+            # reference node: fixed on the lowest floor (z = 0) with slight sensor noise
+            client.publish(f"libnav/dev/{ref_id}/telemetry", json.dumps({
+                "id": ref_id, "role": "reference", "site": args.lib, "seq": seq,
                 "p": round(pressure_at(0.0) + random.gauss(0, 1.5), 2),
                 "t": TEMP_C, "rssi": -48, "up": int(now * 1000),
             }))
@@ -179,7 +181,7 @@ def main():
                 lvl, x, y = w.step(dt)
                 z = w.floor_z[lvl]
                 client.publish(f"libnav/dev/{w.dev}/telemetry", json.dumps({
-                    "id": w.dev, "role": "user", "seq": seq,
+                    "id": w.dev, "role": "user", "site": args.lib, "seq": seq,
                     "p": round(pressure_at(z) + random.gauss(0, 1.5), 2),
                     "t": TEMP_C, "rssi": random.randint(-75, -55), "up": int(now * 1000),
                 }))
@@ -190,6 +192,7 @@ def main():
                     client.publish(f"libnav/user/{w.uid}/gps", json.dumps({
                         "lat": round(lat, 7), "lng": round(lng, 7),
                         "acc": round(random.uniform(8, 18), 1), "ts": int(now * 1000),
+                        "lib": args.lib,
                     }))
             if send_gps:
                 last_gps = now

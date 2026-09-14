@@ -201,12 +201,12 @@ footer a { color: var(--ink); }
 
   <div class="mast">
     <div class="kicker">Project notes</div>
-    <h1>Finding your floor in a five-storey library</h1>
-    <p class="dek">Library Nav shows where you are inside the Taipei Public Library Main Library on a 3D map and walks you to a shelf, a desk or a friend. Your phone's GPS gives the position on the floor. A small pressure sensor you carry works out which floor you are on.</p>
+    <h1>Finding your floor inside a library</h1>
+    <p class="dek">Library Nav shows where you are inside a library on a 3D map and walks you to a shelf, a desk or a friend. Your phone's GPS gives the position on the floor. A small pressure sensor you carry works out which floor you are on. Two libraries are mapped so far: the Taipei Public Library Main Library and the Yorba Linda Public Library in California.</p>
     <dl class="spec">
-      <div><dt>Floors</dt><dd>1 to 5<small>3.8 m each</small></dd></div>
-      <div><dt>Footprint</dt><dd>50 &times; 35<small>m</small></dd></div>
-      <div><dt>Sensors in use</dt><dd>5<small>at once</small></dd></div>
+      <div><dt>Libraries</dt><dd>2<small>Taipei, Yorba Linda</small></dd></div>
+      <div><dt>Floors</dt><dd>5 + 2<small>3.8 m / about 5.5 m apart</small></dd></div>
+      <div><dt>Sensors in use</dt><dd>5<small>per library</small></dd></div>
       <div><dt>Position updates</dt><dd>2<small>per second</small></dd></div>
       <div><dt>Transport</dt><dd>MQTT<small>over TLS</small></dd></div>
     </dl>
@@ -343,16 +343,16 @@ footer a { color: var(--ink); }
             <tr><td><code>user/&lt;uid&gt;/echo</code></td><td>timestamp</td><td>0</td><td class="n">no</td><td>every 5 s</td><td>phone &rarr; itself</td></tr>
             <tr><td><code>user/&lt;uid&gt;/pos</code></td><td>fused position</td><td>0</td><td class="y">yes</td><td>2/s</td><td>engine &rarr; phones</td></tr>
             <tr><td><code>user/&lt;uid&gt;/control</code></td><td>admit, reject, pairing result</td><td>1</td><td class="n">no</td><td>on event</td><td>engine &rarr; phone</td></tr>
-            <tr><td><code>site/anchors</code></td><td>GPS calibration points</td><td>1</td><td class="y">yes</td><td>on calibration</td><td>phone &rarr; engine</td></tr>
+            <tr><td><code>site/&lt;lib&gt;/anchors</code></td><td>GPS calibration points, per library</td><td>1</td><td class="y">yes</td><td>on calibration</td><td>phone &rarr; engine</td></tr>
             <tr><td><code>directory</code></td><td>list of sensors</td><td>0</td><td class="y">yes</td><td>on change, max 10 s</td><td>engine &rarr; phones</td></tr>
-            <tr><td><code>capacity</code></td><td>active, waiting, max</td><td>0</td><td class="y">yes</td><td>on change</td><td>engine &rarr; phones</td></tr>
+            <tr><td><code>capacity</code></td><td>active and waiting per library</td><td>0</td><td class="y">yes</td><td>on change</td><td>engine &rarr; phones</td></tr>
             <tr><td><code>engine/status</code></td><td>online / offline</td><td>1</td><td class="y">yes</td><td>on change, LWT</td><td>engine &rarr; phones</td></tr>
           </tbody>
         </table>
       </div>
 
       <p class="label">dev/NAV-001/telemetry</p>
-<pre>{ "id": <span class="s">"NAV-001"</span>, "role": <span class="s">"user"</span>, "seq": 1234,
+<pre>{ "id": <span class="s">"NAV-001"</span>, "role": <span class="s">"user"</span>, "site": <span class="s">"main"</span>, "seq": 1234,
   "p": 101325.0,   <span class="c">// Pa, median of the last 5 samples</span>
   "t": 24.5, "rssi": -58, "up": 395011 }</pre>
 
@@ -366,7 +366,9 @@ footer a { color: var(--ink); }
   "reason": <span class="s">""</span>, "active": 3, "max": 5, "slots": 2, "ts": 1721631000000 }</pre>
 
       <p class="label">capacity</p>
-<pre>{ "active": 1, "waiting": 0, "max": 5, "ts": 1721631000000 }</pre>
+<pre>{ "max": 5, "ts": 1721631000000,
+  "sites": { "main": { "active": 1, "waiting": 0 },
+             "yorba-linda": { "active": 0, "waiting": 0 } } }</pre>
 
       <p>Every field of every topic is listed in <a href="https://github.com/Ted369369/Indoor-3D-Navigation-Platform/blob/main/docs/MQTT_TOPICS.md">docs/MQTT_TOPICS.md</a>.</p>
     </section>
@@ -404,13 +406,13 @@ footer a { color: var(--ink); }
     <section id="engine">
       <div class="num">06</div>
       <h2>The position engine</h2>
-      <p>One Python process using paho-mqtt. For each connected user it runs these steps twice a second and publishes the result to <code>user/&lt;uid&gt;/pos</code>, so every screen draws the same position.</p>
+      <p>One Python process using paho-mqtt. It loads every library in <code>libraries.json</code> and keeps a separate map, reference sensor, calibration and user limit for each. Phones say which library they're in (<code>lib</code> in their messages) and sensors say which one they belong to (<code>site</code>). For each connected user it runs these steps twice a second and publishes the result to <code>user/&lt;uid&gt;/pos</code>, so every screen draws the same position.</p>
       <ol class="steps">
         <li><b>GPS to metres</b>Two calibration points tie latitude and longitude to the metre grid of the floor plan. A small constant-velocity Kalman filter smooths the jitter and throws away jumps that aren't physically possible.</li>
         <li><b>Height from pressure</b>The hypsometric formula turns the pressure difference between your sensor and the reference sensor on 1F into a height. Using the difference means the weather cancels out.</li>
         <li><b>Pick a floor</b>The floor only changes after 4 samples in a row agree, so standing on the stairs doesn't make the marker flicker between floors.</li>
         <li><b>Snap to paths</b>The point is moved to the nearest corridor on that floor, so the marker doesn't drift through walls or shelves.</li>
-        <li><b>Limit to 5 sensors</b>The first 5 users are admitted and the rest wait in order. When someone leaves, the next person is let in automatically. Rejected clients are reminded every 5 seconds, so a phone that missed the message still recovers.</li>
+        <li><b>Limit to 5 sensors</b>In each library the first 5 users are admitted and the rest wait in order. When someone leaves, the next person is let in automatically. Rejected clients are reminded every 5 seconds, so a phone that missed the message still recovers.</li>
         <li><b>Keep the sensor list</b>The engine publishes which sensors are online, their signal and whether someone is using them. The app's sensor picker reads this, and a sensor that is already taken is refused with <code>pair_denied</code>.</li>
       </ol>
     </section>
@@ -418,7 +420,7 @@ footer a { color: var(--ink); }
     <section id="firmware">
       <div class="num">07</div>
       <h2>Sensor firmware</h2>
-      <p>One Arduino sketch for the ESP8266 with a BMP390 on I&sup2;C. A compile-time setting makes a unit either a carried sensor or the fixed reference.</p>
+      <p>One Arduino sketch for the ESP8266 with a BMP390 on I&sup2;C. Compile-time settings make a unit either a carried sensor or the fixed reference, and say which library it belongs to (<code>SITE_ID</code>).</p>
 
       <h3>Connecting</h3>
       <ul class="plain">
@@ -466,9 +468,10 @@ footer a { color: var(--ink); }
       <h2>The web app</h2>
       <p>A single page built on Three.js, hosted on GitHub Pages. Nothing to install; it runs in the browser on Android and iPhone.</p>
       <dl class="kv">
-        <div><dt>3D map</dt><dd>All five floors stacked, or spread apart, or one floor at a time. Zone codes in the overview, full names once you pick a floor.</dd></div>
-        <div><dt>Routes</dt><dd>A* across floors. Routes use either the central stairs or the stairs next to the elevator, or the elevator only for step-free routes. While navigating, only the floors on the route are shown.</dd></div>
-        <div><dt>Search</dt><dd>Type a subject, a book or a place ("C language", "Qing dynasty", "somewhere to study") in English or Chinese. Fuzzy matching maps it to a shelf area and starts the route.</dd></div>
+        <div><dt>Libraries</dt><dd>Pick the library on the first screen. Each one is a single model file with its floors, rooms, paths, stair names and search words, so adding a building doesn't need code changes. <a href="https://github.com/Ted369369/Indoor-3D-Navigation-Platform/blob/main/docs/MAPS.md">How the two maps were made</a>.</dd></div>
+        <div><dt>3D map</dt><dd>All floors stacked, or spread apart, or one floor at a time. Zone codes in the overview, full names once you pick a floor.</dd></div>
+        <div><dt>Routes</dt><dd>A* across floors. A route keeps to one staircase (in Taipei the central stairs or the stairs next to the elevator, in Yorba Linda the grand staircase or the west stairs), or uses only the elevator for step-free routes. While navigating, only the floors on the route are shown.</dd></div>
+        <div><dt>Search</dt><dd>Type a subject, a book or a place in English or Chinese: "C language" or "Qing dynasty" in Taipei, "cooking" or "storytime" in Yorba Linda. Fuzzy matching maps it to an area and starts the route.</dd></div>
         <div><dt>Voice</dt><dd>Spoken turn-by-turn directions and voice input, plus a low-vision mode with larger controls.</dd></div>
         <div><dt>Friends</dt><dd>Find people by name, send a request, see accepted friends on the map and get a route to them.</dd></div>
         <div><dt>Sensor pairing</dt><dd>Lists the sensors that are online, sorted by signal, with the ones in use greyed out. You always pick yours; nothing pairs automatically.</dd></div>
@@ -483,7 +486,7 @@ footer a { color: var(--ink); }
 
 <footer>
   <div class="in">
-    <span>Library Nav &middot; Taipei Public Library Main Library</span>
+    <span>Library Nav &middot; Taipei Public Library Main Library &middot; Yorba Linda Public Library</span>
     <a href="./">Open the app</a>
     <a href="https://github.com/Ted369369/Indoor-3D-Navigation-Platform">GitHub</a>
     <a href="https://github.com/Ted369369/Indoor-3D-Navigation-Platform/blob/main/docs/MQTT_TOPICS.md">MQTT topics</a>

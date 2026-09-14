@@ -3,7 +3,11 @@
 Library 3D Navigation - position engine
 
 Reads sensor pressure and phone GPS from MQTT and publishes one smoothed
-position per user, so every client draws the same thing.
+position per user, so every client draws the same thing. Every library listed
+as available in web/data/libraries.json runs side by side, each with its own
+map, reference sensor, calibration and user limit. Phones say which library
+they are in (`lib` in their gps/pair/floor payloads) and sensors say which
+library they belong to (`site` in telemetry, "main" if missing).
 
 Pipeline per user:
   GPS (lat/lng)  -> local metres (geo anchors) -> 2D Kalman (constant velocity)
@@ -16,20 +20,20 @@ Also limits how many users are active at once (default 5), publishes the
 sensor list and occupancy, and can log sessions to Supabase (service-role key).
 
 MQTT topics consumed:
-  libnav/dev/+/telemetry   {"id","role","seq","p","t","rssi","up"}
+  libnav/dev/+/telemetry   {"id","role","site","seq","p","t","rssi","up"}
   libnav/dev/+/status      "online"/"offline" (retained LWT)
   libnav/dev/+/init        boot info (retained)
-  libnav/user/+/gps        {"lat","lng","acc","ts"}
-  libnav/user/+/pair       {"device":"NAV-001"} (retained; empty = unpair)
-  libnav/user/+/floor      {"floor":4} (retained; empty = use the sensor)
+  libnav/user/+/gps        {"lat","lng","acc","ts","lib"}
+  libnav/user/+/pair       {"device":"NAV-001","lib"} (retained; empty = unpair)
+  libnav/user/+/floor      {"floor":4,"lib"} (retained; empty = use the sensor)
   libnav/user/+/presence   "online"/"offline" (retained LWT)
-  libnav/site/anchors      {"origin":{lat,lng},"xAxis":{lat,lng}} (retained)
+  libnav/site/<lib>/anchors {"origin":{lat,lng},"xAxis":{lat,lng}} (retained)
 
 MQTT topics produced:
   libnav/user/<uid>/pos     {"x","y","z","floor","q":{...},"ts"} (retained)
   libnav/user/<uid>/control {"action","reason","slots","active","max","device"}
-  libnav/directory          {"devices":[...],"ts"} (retained)
-  libnav/capacity           {"active","waiting","max","ts"} (retained)
+  libnav/directory          {"devices":[{..., "site"}],"ts"} (retained)
+  libnav/capacity           {"max","sites":{<lib>:{"active","waiting"}},"ts"} (retained)
   libnav/engine/status      "online"/"offline" (retained LWT)
 
 Configuration: .env file or environment (see .env.example in this folder).
@@ -92,9 +96,11 @@ MQTT_TLS = os.getenv("MQTT_TLS", "1") == "1"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
-MAP_MODEL_PATH = Path(
-    os.getenv("MAP_MODEL_PATH", Path(__file__).parent.parent / "web" / "data" / "map_model.json")
-)
+WEB_DATA = Path(__file__).parent.parent / "web" / "data"
+LIBRARIES_PATH = Path(os.getenv("LIBRARIES_PATH", WEB_DATA / "libraries.json"))
+# Setting MAP_MODEL_PATH runs a single library called "main" from that file
+MAP_MODEL_PATH = os.getenv("MAP_MODEL_PATH", "")
+DEFAULT_SITE = "main"
 
 MAX_ACTIVE_USERS = int(os.getenv("MAX_ACTIVE_USERS", "5"))
 PUBLISH_HZ = float(os.getenv("PUBLISH_HZ", "2"))
@@ -249,11 +255,13 @@ class DeviceState:
     last_seen: float = 0.0
     online: bool = False
     role: str = "user"
+    site: str = DEFAULT_SITE
 
 
 @dataclass
 class UserState:
     uid: str
+    site: str = DEFAULT_SITE
     device_id: str | None = None
     kf: Kalman2D = field(default_factory=Kalman2D)
     last_gps: float = 0.0
@@ -272,20 +280,44 @@ class UserState:
         return self.last_gps > 0 and (now - self.last_gps) < GPS_STALE_S
 
 
-class Engine:
-    def __init__(self):
-        self.map = MapModel(MAP_MODEL_PATH)
+class Site:
+    """One library: its map, GPS calibration and reference sensor."""
+
+    def __init__(self, site_id: str, path: Path):
+        self.id = site_id
+        self.map = MapModel(path)
         anchors = self.map.site["geoAnchors"]
         self.geo = GeoConverter(anchors["origin"], anchors["xAxis"], self.map.site["width"])
-        self.devices: dict[str, DeviceState] = {}
-        self.users: dict[str, UserState] = {}
-        self.ref_pressure: float | None = None   # EMA of the reference node
+        self.ref_pressure: float | None = None   # EMA of this library's reference node
         self.ref_temp = 20.0
         self.ref_last = 0.0
-        self.ref_floor_z = 0.0                    # reference node sits on floor 2 (z=0)
+        # the reference node sits on the lowest floor
+        self.ref_floor_z = self.map.floor_z[self.map.levels[0]]
+
+
+def load_sites() -> dict[str, Site]:
+    if MAP_MODEL_PATH:
+        return {DEFAULT_SITE: Site(DEFAULT_SITE, Path(MAP_MODEL_PATH))}
+    catalog = json.loads(LIBRARIES_PATH.read_text(encoding="utf-8"))
+    sites = {}
+    for lib in catalog.get("libraries", []):
+        if lib.get("available") and lib.get("model"):
+            sites[lib["id"]] = Site(lib["id"], LIBRARIES_PATH.parent.parent / lib["model"])
+            log.info("library %s: %s", lib["id"], lib.get("name", ""))
+    if not sites:
+        raise SystemExit(f"no available libraries in {LIBRARIES_PATH}")
+    return sites
+
+
+class Engine:
+    def __init__(self):
+        self.sites = load_sites()
+        self.default_site = DEFAULT_SITE if DEFAULT_SITE in self.sites else next(iter(self.sites))
+        self.devices: dict[str, DeviceState] = {}
+        self.users: dict[str, UserState] = {}
         self._dir_key = None                      # last published directory fingerprint
         self._dir_last_pub = 0.0
-        self._cap_key = None                      # last published capacity (active, waiting)
+        self._cap_key = None                      # last published capacity per library
         self.lock = threading.Lock()
         self.running = True
 
@@ -320,7 +352,8 @@ class Engine:
             ("libnav/user/+/pair", 1),
             ("libnav/user/+/floor", 1),
             ("libnav/user/+/presence", 1),
-            ("libnav/site/anchors", 1),
+            ("libnav/site/+/anchors", 1),
+            ("libnav/site/anchors", 1),           # older clients, Taipei only
         ])
         client.publish("libnav/engine/status", "online", qos=1, retain=True)
 
@@ -341,10 +374,37 @@ class Engine:
                 self.handle_floor(parts[2], msg.payload)
             elif parts[1] == "user" and parts[3] == "presence":
                 self.handle_presence(parts[2], msg.payload.decode())
-            elif parts[1] == "site" and parts[2] == "anchors":
-                self.handle_anchors(json.loads(msg.payload))
+            elif parts[1] == "site" and parts[-1] == "anchors":
+                site_id = parts[2] if len(parts) == 4 else DEFAULT_SITE
+                self.handle_anchors(site_id, json.loads(msg.payload))
         except Exception as exc:
             log.warning("bad message on %s: %s", msg.topic, exc)
+
+    # ------------------------------------------------------------ helpers
+    def _user(self, uid: str) -> UserState:
+        user = self.users.get(uid)
+        if user is None:
+            user = self.users[uid] = UserState(uid, site=self.default_site)
+        return user
+
+    def _set_user_site(self, user: UserState, site_id) -> None:
+        """Move a user to another library. Their filter, floor and slot were
+        for the old building, so start those over."""
+        if not site_id or site_id == user.site:
+            return
+        if site_id not in self.sites:
+            log.warning("user %s asked for unknown library %s", user.uid, site_id)
+            return
+        log.info("user %s switched library %s -> %s", user.uid, user.site, site_id)
+        if user.admitted:
+            user.admitted = False
+            user.notified = ""
+            self.log_session_end(user)
+        user.site = site_id
+        user.kf = Kalman2D()
+        user.last_kf_time = 0.0
+        user.floor = None
+        user.floor_votes = []
 
     # ------------------------------------------------------------ handlers
     def handle_telemetry(self, data: dict):
@@ -359,14 +419,16 @@ class Engine:
             dev.last_seen = now
             dev.online = True
             dev.role = data.get("role", "user")
-            if data.get("role") == "reference":
+            dev.site = data.get("site") or DEFAULT_SITE
+            site = self.sites.get(dev.site)
+            if data.get("role") == "reference" and site:
                 # EMA smooths sensor noise while tracking weather drift
-                if self.ref_pressure is None:
-                    self.ref_pressure = dev.pressure
+                if site.ref_pressure is None:
+                    site.ref_pressure = dev.pressure
                 else:
-                    self.ref_pressure += 0.05 * (dev.pressure - self.ref_pressure)
-                self.ref_temp = dev.temp_c
-                self.ref_last = now
+                    site.ref_pressure += 0.05 * (dev.pressure - site.ref_pressure)
+                site.ref_temp = dev.temp_c
+                site.ref_last = now
 
     def handle_dev_status(self, dev_id: str, status: str):
         with self.lock:
@@ -379,11 +441,12 @@ class Engine:
         with self.lock:
             dev = self.devices.setdefault(dev_id, DeviceState())
             dev.role = data.get("role", dev.role)
+            dev.site = data.get("site") or DEFAULT_SITE
             dev.online = True
             dev.last_seen = time.time()
         log.info(
-            "device %s BOOTED (role=%s fw=%s ip=%s reset=%s rssi=%s heap=%s)",
-            dev_id, data.get("role"), data.get("fw"), data.get("ip"),
+            "device %s BOOTED (library=%s role=%s fw=%s ip=%s reset=%s rssi=%s heap=%s)",
+            dev_id, data.get("site", DEFAULT_SITE), data.get("role"), data.get("fw"), data.get("ip"),
             data.get("rst"), data.get("rssi"), data.get("heap"),
         )
 
@@ -392,12 +455,14 @@ class Engine:
         acc = float(data.get("acc", 30.0))
         if acc > 100.0:
             return  # unusable fix - skip rather than corrupt the filter
-        x, y = self.geo.to_local(float(data["lat"]), float(data["lng"]))
-        # clamp into the site bounding box to reject wild GPS outliers
-        x = max(-10.0, min(self.map.site["width"] + 10.0, x))
-        y = max(-10.0, min(self.map.site["depth"] + 10.0, y))
         with self.lock:
-            user = self.users.setdefault(uid, UserState(uid))
+            user = self._user(uid)
+            self._set_user_site(user, data.get("lib"))
+            site = self.sites[user.site]
+            x, y = site.geo.to_local(float(data["lat"]), float(data["lng"]))
+            # clamp into the site bounding box to reject wild GPS outliers
+            x = max(-10.0, min(site.map.site["width"] + 10.0, x))
+            y = max(-10.0, min(site.map.site["depth"] + 10.0, y))
             if not user.is_active(now):
                 user.queued_at = now  # (re)joining the admission queue
             user.kf.predict(now - user.last_kf_time if user.last_kf_time else 0.0)
@@ -417,18 +482,25 @@ class Engine:
 
     def handle_pair(self, uid: str, payload: bytes):
         device_id = None
+        lib = None
         if payload:
             try:
-                device_id = json.loads(payload).get("device") or None
+                body = json.loads(payload)
+                device_id = body.get("device") or None
+                lib = body.get("lib")
             except json.JSONDecodeError:
                 pass
         now = time.time()
         with self.lock:
-            user = self.users.setdefault(uid, UserState(uid))
+            user = self._user(uid)
+            self._set_user_site(user, lib)
             if device_id:
                 dev = self.devices.get(device_id)
                 if dev and dev.role == "reference":
                     self.notify(uid, "pair_denied", reason="reference", device=device_id)
+                    return
+                if dev and dev.site != user.site:
+                    self.notify(uid, "pair_denied", reason="other-library", device=device_id)
                     return
                 owner = next(
                     (u for u in self.users.values()
@@ -445,25 +517,33 @@ class Engine:
                 user.device_id = None
         log.info("user %s paired with %s", uid, device_id or "(nothing)")
 
-    def handle_anchors(self, data: dict):
+    def handle_anchors(self, site_id: str, data: dict):
+        site = self.sites.get(site_id)
+        if not site:
+            log.warning("anchors for unknown library %s ignored", site_id)
+            return
         try:
-            self.geo.set_anchors(data["origin"], data["xAxis"])
+            site.geo.set_anchors(data["origin"], data["xAxis"])
         except (KeyError, TypeError) as exc:
             log.warning("ignored bad anchors payload: %s", exc)
 
     def handle_floor(self, uid: str, payload: bytes):
         """GPS-only mode: the user states which floor they are on (retained;
         empty payload returns control to the barometric sensor)."""
-        floor = None
+        candidate = None
+        lib = None
         if payload:
             try:
-                candidate = str(json.loads(payload).get("floor", ""))
-                if candidate in self.map.floor_z:
-                    floor = candidate
+                body = json.loads(payload)
+                candidate = str(body.get("floor", ""))
+                lib = body.get("lib")
             except json.JSONDecodeError:
                 pass
         with self.lock:
-            user = self.users.setdefault(uid, UserState(uid))
+            user = self._user(uid)
+            self._set_user_site(user, lib)
+            floor_z = self.sites[user.site].map.floor_z
+            floor = candidate if candidate in floor_z else None
             user.manual_floor = floor
         log.info("user %s manual floor -> %s", uid, floor or "(auto)")
 
@@ -494,43 +574,50 @@ class Engine:
                 self.log_session_end(user)
                 log.info("user %s inactive - slot released", user.uid)
 
-        active = [u for u in self.users.values() if u.is_active(now)]
-        admitted_n = sum(1 for u in active if u.admitted)
-        free = MAX_ACTIVE_USERS - admitted_n
-        waiting = sorted((u for u in active if not u.admitted), key=lambda u: u.queued_at)
+        counts = {}
+        for site_id in self.sites:
+            # each library has its own MAX_ACTIVE_USERS slots
+            active = [u for u in self.users.values() if u.site == site_id and u.is_active(now)]
+            admitted_n = sum(1 for u in active if u.admitted)
+            free = MAX_ACTIVE_USERS - admitted_n
+            waiting = sorted((u for u in active if not u.admitted), key=lambda u: u.queued_at)
 
-        for user in waiting:
-            if free > 0:
-                user.admitted = True
-                free -= 1
-                admitted_n += 1
-                self.notify(user.uid, "admit", slots=free, active=admitted_n)
-                user.notified = "admit"
-                self.log_session_start(user)
-            elif user.notified != "reject" or now - user.last_reject_note > 5.0:
-                self.notify(user.uid, "reject", reason="capacity", slots=0, active=admitted_n)
-                user.notified = "reject"
-                user.last_reject_note = now
+            for user in waiting:
+                if free > 0:
+                    user.admitted = True
+                    free -= 1
+                    admitted_n += 1
+                    self.notify(user.uid, "admit", slots=free, active=admitted_n)
+                    user.notified = "admit"
+                    self.log_session_start(user)
+                elif user.notified != "reject" or now - user.last_reject_note > 5.0:
+                    self.notify(user.uid, "reject", reason="capacity", slots=0, active=admitted_n)
+                    user.notified = "reject"
+                    user.last_reject_note = now
+
+            counts[site_id] = {
+                "active": admitted_n,
+                "waiting": sum(1 for u in waiting if not u.admitted),
+            }
 
         # forget users idle for a long time so phantom uids never accumulate
         for uid in [u for u, s in self.users.items()
                     if s.last_gps > 0 and now - s.last_gps > 900]:
             del self.users[uid]
 
-        still_waiting = sum(1 for u in waiting if not u.admitted)
-        self.publish_capacity(admitted_n, still_waiting, now)
+        self.publish_capacity(counts, now)
 
-    def publish_capacity(self, active: int, waiting: int, now: float):
+    def publish_capacity(self, counts: dict, now: float):
         """Retained live occupancy for every client (a dedicated state topic,
-        unlike per-user /control events). Republished only when it changes."""
-        key = (active, waiting)
+        unlike per-user /control events), one entry per library. Republished
+        only when a number changes."""
+        key = tuple(sorted((k, v["active"], v["waiting"]) for k, v in counts.items()))
         if key == self._cap_key:
             return
         self._cap_key = key
         self.client.publish(
             "libnav/capacity",
-            json.dumps({"active": active, "waiting": waiting,
-                        "max": MAX_ACTIVE_USERS, "ts": int(now * 1000)}),
+            json.dumps({"max": MAX_ACTIVE_USERS, "sites": counts, "ts": int(now * 1000)}),
             qos=0, retain=True,
         )
 
@@ -563,13 +650,14 @@ class Engine:
             entries.append({
                 "id": dev_id,
                 "role": dev.role,
+                "site": dev.site,
                 "online": online,
                 "rssi": dev.rssi if online else None,
                 "ageS": int(now - dev.last_seen) if dev.last_seen else None,
                 "pairedBy": claims.get(dev_id),
             })
         key = tuple(
-            (e["id"], e["role"], e["online"], e["pairedBy"],
+            (e["id"], e["role"], e["site"], e["online"], e["pairedBy"],
              (e["rssi"] or 0) // 5)
             for e in entries
         )
@@ -605,14 +693,14 @@ class Engine:
         user.session_row = None
 
     # ------------------------------------------------------------ fusion
-    def altitude_of(self, dev: DeviceState) -> float | None:
-        if self.ref_pressure is None or time.time() - self.ref_last > PRESSURE_STALE_S:
+    def altitude_of(self, dev: DeviceState, site: Site) -> float | None:
+        if site.ref_pressure is None or time.time() - site.ref_last > PRESSURE_STALE_S:
             return None
         if time.time() - dev.last_seen > PRESSURE_STALE_S:
             return None
-        t_mean_k = 273.15 + (dev.temp_c + self.ref_temp) / 2.0
-        dz = (R_GAS * t_mean_k) / (G0 * M_AIR) * math.log(self.ref_pressure / dev.pressure)
-        return self.ref_floor_z + dz
+        t_mean_k = 273.15 + (dev.temp_c + site.ref_temp) / 2.0
+        dz = (R_GAS * t_mean_k) / (G0 * M_AIR) * math.log(site.ref_pressure / dev.pressure)
+        return site.ref_floor_z + dz
 
     def tick(self):
         now = time.time()
@@ -628,15 +716,19 @@ class Engine:
                 user.kf.predict(now - user.last_kf_time)
                 user.last_kf_time = now
                 x, y = user.kf.x[0], user.kf.x[1]
+                site = self.sites[user.site]
+                site_map = site.map
 
                 # ---- floor from differential barometry
                 dev = self.devices.get(user.device_id) if user.device_id else None
+                if dev and dev.site != user.site:
+                    dev = None  # a sensor from another building says nothing here
                 pressure_ok = False
                 if dev:
-                    z_est = self.altitude_of(dev)
+                    z_est = self.altitude_of(dev, site)
                     if z_est is not None:
                         pressure_ok = True
-                        vote = self.map.classify_floor(z_est)
+                        vote = site_map.classify_floor(z_est)
                         if vote:
                             user.floor_votes.append(vote)
                             user.floor_votes = user.floor_votes[-FLOOR_SWITCH_SAMPLES:]
@@ -646,22 +738,22 @@ class Engine:
                                 and user.floor != vote
                             ):
                                 user.floor = vote
-                                log.info("user %s now on floor %s", user.uid, vote)
+                                log.info("user %s now on floor %s (%s)", user.uid, vote, user.site)
                 # floor precedence: fresh sensor > user-set manual > entrance
-                if not pressure_ok and user.manual_floor:
+                if not pressure_ok and user.manual_floor in site_map.floor_z:
                     user.floor = user.manual_floor
-                if user.floor is None:
-                    user.floor = self.map.levels[0]
+                if user.floor not in site_map.floor_z:
+                    user.floor = site_map.levels[0]
 
                 # ---- snap to walkable graph
-                sx, sy, dist = self.map.snap(user.floor, x, y)
+                sx, sy, dist = site_map.snap(user.floor, x, y)
                 if dist <= SNAP_MAX_DIST_M:
                     x, y = sx, sy
 
                 payload = {
                     "x": round(x, 2),
                     "y": round(y, 2),
-                    "z": self.map.floor_z[user.floor],
+                    "z": site_map.floor_z[user.floor],
                     "floor": int(user.floor),
                     "q": {
                         "gpsAcc": round(user.gps_acc, 1),

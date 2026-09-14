@@ -8,7 +8,7 @@
  *
  * Publishes JSON over TLS MQTT (HiveMQ Cloud) at PUBLISH_HZ:
  *   topic  libnav/dev/<DEVICE_ID>/telemetry
- *   payload {"id","role","seq","p"(Pa),"t"(degC),"rssi","up"(ms)}
+ *   payload {"id","role","site","seq","p"(Pa),"t"(degC),"rssi","up"(ms)}
  * Presence via retained Last Will on libnav/dev/<DEVICE_ID>/status.
  *
  * Wiring (any ESP8266 board - pins given as generic GPIO numbers):
@@ -45,6 +45,8 @@
 
 #define NODE_ROLE      ROLE_USER          // ROLE_REFERENCE for the fixed node
 #define DEVICE_ID      "NAV-001"          // unique per device; use "NAV-REF" for the reference
+#define SITE_ID        "main"             // library id from web/data/libraries.json
+                                          // ("main" = Taipei, "yorba-linda" = Yorba Linda)
 
 #define MQTT_PORT      8883               // HiveMQ Cloud TLS port
 
@@ -179,12 +181,12 @@ static bool wifiEnsure() {
 // build, IP, MAC, reset reason, signal, free heap) so the engine/web and you
 // can confirm the node booted and see why it last restarted.
 static void publishInit() {
-  char payload[248];
+  char payload[288];
   snprintf(payload, sizeof(payload),
-           "{\"id\":\"%s\",\"role\":\"%s\",\"event\":\"boot\",\"fw\":\"%s\","
+           "{\"id\":\"%s\",\"role\":\"%s\",\"site\":\"%s\",\"event\":\"boot\",\"fw\":\"%s\","
            "\"ip\":\"%s\",\"mac\":\"%s\",\"rst\":\"%s\",\"rssi\":%d,"
            "\"heap\":%u,\"up\":%lu}",
-           DEVICE_ID, kRole, FW_VERSION, WiFi.localIP().toString().c_str(),
+           DEVICE_ID, kRole, SITE_ID, FW_VERSION, WiFi.localIP().toString().c_str(),
            WiFi.macAddress().c_str(), ESP.getResetReason().c_str(),
            WiFi.RSSI(), (unsigned)ESP.getFreeHeap(), (unsigned long)millis());
   mqtt.publish(topicInit, payload, true);   // QoS 0, retained
@@ -221,8 +223,8 @@ void setup() {
   digitalWrite(STATUS_LED, HIGH);
   Serial.begin(115200);
   delay(200);
-  Serial.printf_P(PSTR("\n[boot] libnav node %s role=%s fw=%s\n"),
-                  DEVICE_ID, kRole, FW_VERSION);
+  Serial.printf_P(PSTR("\n[boot] libnav node %s role=%s library=%s fw=%s\n"),
+                  DEVICE_ID, kRole, SITE_ID, FW_VERSION);
   // In a reboot loop this line is the diagnosis: "Exception" / "Soft WDT
   // reset" = a crash; "Power on" / "External System" = supply or reset pin.
   Serial.printf_P(PSTR("[boot] reset reason: %s | free heap: %u bytes\n"),
@@ -363,11 +365,11 @@ void loop() {
     lastPublishMs = nowMs;
     if (mqtt.connected()) {
       float pMed = median5(pWindow, 5);
-      char payload[176];
+      char payload[208];
       snprintf(payload, sizeof(payload),
-               "{\"id\":\"%s\",\"role\":\"%s\",\"seq\":%lu,\"p\":%.2f,"
+               "{\"id\":\"%s\",\"role\":\"%s\",\"site\":\"%s\",\"seq\":%lu,\"p\":%.2f,"
                "\"t\":%.2f,\"rssi\":%d,\"up\":%lu}",
-               DEVICE_ID, kRole, (unsigned long)seq++, pMed,
+               DEVICE_ID, kRole, SITE_ID, (unsigned long)seq++, pMed,
                lastTemp, WiFi.RSSI(), (unsigned long)nowMs);
       if (mqtt.publish(topicTelemetry, payload)) {
         digitalWrite(STATUS_LED, LOW);      // brief flash per publish

@@ -7,15 +7,20 @@ often, and what the payload looks like.
 - **Namespace**: everything lives under `libnav/`.
 - **Encoding**: payloads are UTF-8. JSON unless noted as a plain string.
 - **Placeholders**: `<DEVICE_ID>` = ESP node id (e.g. `NAV-001`, `NAV-REF`);
-  `<uid>` = a web-app user id (Supabase auth uid, or a random uuid in solo mode).
+  `<uid>` = a web-app user id (Supabase auth uid, or a random uuid in solo mode);
+  `<lib>` = a library id from `web/data/libraries.json` (`main` = Taipei,
+  `yorba-linda` = Yorba Linda).
+- **Several libraries share one broker.** Sensors put their library in `site`,
+  phones put theirs in `lib`. Anything missing either field counts as `main`,
+  so older firmware keeps working in Taipei.
 
 ## Actors
 
 | Actor | Publishes | Subscribes |
 |---|---|---|
 | **ESP8266 node** (firmware) | `dev/<id>/telemetry`, `dev/<id>/status`, `dev/<id>/init` | nothing |
-| **Position engine** (Python) | `user/<uid>/pos`, `user/<uid>/control`, `directory`, `capacity`, `engine/status` | `dev/+/telemetry`, `dev/+/status`, `dev/+/init`, `user/+/gps`, `user/+/pair`, `user/+/floor`, `user/+/presence`, `site/anchors` |
-| **Web app** (phone/browser) | `user/<uid>/gps`, `user/<uid>/pair`, `user/<uid>/floor`, `user/<uid>/presence`, `user/<uid>/echo`, `site/anchors` | `user/<uid>/pos`, `user/<uid>/control`, `user/<uid>/echo`, `directory`, `capacity`, `engine/status`, `dev/+/telemetry`, and per-friend `user/<friendUid>/pos` + `user/<friendUid>/presence` |
+| **Position engine** (Python) | `user/<uid>/pos`, `user/<uid>/control`, `directory`, `capacity`, `engine/status` | `dev/+/telemetry`, `dev/+/status`, `dev/+/init`, `user/+/gps`, `user/+/pair`, `user/+/floor`, `user/+/presence`, `site/+/anchors` |
+| **Web app** (phone/browser) | `user/<uid>/gps`, `user/<uid>/pair`, `user/<uid>/floor`, `user/<uid>/presence`, `user/<uid>/echo`, `site/<lib>/anchors` | `user/<uid>/pos`, `user/<uid>/control`, `user/<uid>/echo`, `directory`, `capacity`, `engine/status`, `dev/+/telemetry`, and per-friend `user/<friendUid>/pos` + `user/<friendUid>/presence` |
 
 ---
 
@@ -33,7 +38,7 @@ often, and what the payload looks like.
 | `libnav/user/<uid>/echo` | JSON | 0 | no | 0.2 Hz | web → self (latency) |
 | `libnav/user/<uid>/pos` | JSON | 0 | yes | 2 Hz | engine → web (self + friends) |
 | `libnav/user/<uid>/control` | JSON | 1 | no | on event | engine → web |
-| `libnav/site/anchors` | JSON | 1 | yes | on calibration | web → engine |
+| `libnav/site/<lib>/anchors` | JSON | 1 | yes | on calibration | web → engine |
 | `libnav/directory` | JSON | 0 | yes | on change / ≤10 s | engine → web |
 | `libnav/capacity` | JSON | 0 | yes | on change | engine → web |
 | `libnav/engine/status` | `online`/`offline` | 1 | yes | on change (LWT) | engine → web |
@@ -49,6 +54,7 @@ Barometric telemetry from an ESP node. Published at `PUBLISH_HZ` (2 Hz).
 {
   "id":   "NAV-001",   // device id (string)
   "role": "user",      // "user" | "reference"
+  "site": "main",      // library id (SITE_ID in the firmware); missing = "main"
   "seq":  1234,         // monotonic sequence counter
   "p":    101325.00,    // pressure, pascals (median-of-5 filtered)
   "t":    24.5,         // temperature, °C
@@ -57,7 +63,8 @@ Barometric telemetry from an ESP node. Published at `PUBLISH_HZ` (2 Hz).
 }
 ```
 QoS 0, not retained. Consumed by the engine: `reference` role feeds the
-weather-drift baseline; `user` role drives per-user floor detection.
+weather-drift baseline for its own library; `user` role drives per-user floor
+detection.
 
 ### `libnav/dev/<DEVICE_ID>/status`
 Presence. Retained so subscribers learn the last known state immediately.
@@ -75,6 +82,7 @@ it last restarted.
 {
   "id":    "NAV-001",
   "role":  "user",
+  "site":  "main",
   "event": "boot",
   "fw":    "Jul 22 2026 13:05:11",  // firmware build stamp (__DATE__ __TIME__)
   "ip":    "192.168.1.42",
@@ -94,24 +102,26 @@ it last restarted.
 Phone location. Published ~1 Hz (`gpsPublishHz`) while a fix is available.
 
 ```json
-{ "lat": 25.029137, "lng": 121.53819, "acc": 12.0, "ts": 1721631000000 }
+{ "lat": 25.029137, "lng": 121.53819, "acc": 12.0, "ts": 1721631000000, "lib": "main" }
 ```
-`acc` = accuracy radius in metres; `ts` = epoch ms. QoS 0, not retained.
+`acc` = accuracy radius in metres; `ts` = epoch ms; `lib` = the library the
+visitor picked. QoS 0, not retained. If `lib` changes, the engine starts that
+user's filter, floor and slot over in the new building.
 The engine ignores fixes with `acc > 100` m.
 
 ### `libnav/user/<uid>/pair`
 Sensor pairing claim. Retained so the engine keeps the claim across reconnects.
 
-- Pair: `{ "device": "NAV-001" }`
+- Pair: `{ "device": "NAV-001", "lib": "main" }`
 - Unpair: **empty payload** (clears the retained claim).
 
 The engine enforces exclusivity and replies on `.../control` with `pair_ok`
-or `pair_denied`.
+or `pair_denied`. A sensor from a different library is refused too.
 
 ### `libnav/user/<uid>/floor`
 Manual floor for GPS-only mode. Retained.
 
-- Set: `{ "floor": 4 }` (must be a mapped level: 1–5).
+- Set: `{ "floor": 4, "lib": "main" }` (must be a floor of that library: 1 to 5 in Taipei, 1 or 2 in Yorba Linda).
 - Clear (hand back to the barometric sensor): **empty payload**.
 
 ### `libnav/user/<uid>/presence`
@@ -165,15 +175,16 @@ Engine → client control events. QoS 1, not retained.
 | `admit` | You hold one of the ≤5 live slots. |
 | `reject` | At capacity; you are queued. Re-sent as a 5 s heartbeat. |
 | `pair_ok` | Sensor `device` paired to you. |
-| `pair_denied` | Pairing refused (`reason`: `in-use` = held by another visitor, `reference` = reference node, not selectable). |
+| `pair_denied` | Pairing refused (`reason`: `in-use` = held by another visitor, `reference` = reference node, not selectable, `other-library` = the sensor belongs to another library). |
 
 ---
 
 ## Site / engine topics
 
-### `libnav/site/anchors`
-Geo calibration broadcast by the web app when the user saves anchors. Retained,
-so the engine (and other clients) pick it up on connect and apply it live.
+### `libnav/site/<lib>/anchors`
+Geo calibration broadcast by the web app when the user saves anchors, one topic
+per library. Retained, so the engine picks it up on connect and applies it live.
+The old unscoped `libnav/site/anchors` is still accepted and treated as Taipei.
 
 ```json
 {
@@ -193,6 +204,7 @@ at least every 10 s).
     {
       "id": "NAV-001",
       "role": "user",        // "user" | "reference"
+      "site": "main",         // library the sensor belongs to
       "online": true,         // seen within PRESSURE_STALE_S (10 s)
       "rssi": -58,            // dBm, or null when offline
       "ageS": 1,              // seconds since last telemetry, or null
@@ -206,10 +218,18 @@ at least every 10 s).
 ### `libnav/capacity`
 Live occupancy, broadcast to **all** clients. A dedicated **retained state**
 topic (unlike the per-user `control` events), republished only when the numbers
-change. Drives the "N/5" pill in the app's top bar.
+change. Each library has its own `max` slots. The app shows its library's entry
+in the "N/5" pill in the top bar.
 
 ```json
-{ "active": 3, "waiting": 1, "max": 5, "ts": 1721631000000 }
+{
+  "max": 5,
+  "sites": {
+    "main":        { "active": 3, "waiting": 1 },
+    "yorba-linda": { "active": 0, "waiting": 0 }
+  },
+  "ts": 1721631000000
+}
 ```
 
 ### `libnav/engine/status`
@@ -232,8 +252,9 @@ The web app warns "position engine offline" when it sees `offline`.
 - **Last Will (LWT)** provides `offline` for `dev/<id>/status`,
   `user/<uid>/presence`, and `engine/status` so drops are detected without a
   clean disconnect.
-- **Capacity**: the engine admits at most `MAX_ACTIVE_USERS` (default 5) via
-  `control`; extra clients are queued and admitted automatically as slots free.
+- **Capacity**: the engine admits at most `MAX_ACTIVE_USERS` (default 5) per
+  library via `control`; extra clients are queued and admitted automatically as
+  slots free.
 
 ## Broker accounts
 
