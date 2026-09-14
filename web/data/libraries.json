@@ -3,21 +3,21 @@
     {
       "id": "main",
       "name": "Main Library",
-      "location": "3 floors · periodicals, books, study areas",
+      "location": "Five floors: periodicals, reference, books, study space",
       "model": "data/map_model.json",
       "available": true
     },
     {
       "id": "east",
       "name": "East Branch",
-      "location": "Coming soon",
+      "location": "Not mapped yet",
       "model": "",
       "available": false
     },
     {
       "id": "science",
       "name": "Science & Technology Library",
-      "location": "Coming soon",
+      "location": "Not mapped yet",
       "model": "",
       "available": false
     }

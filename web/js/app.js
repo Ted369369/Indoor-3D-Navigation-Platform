@@ -2,14 +2,22 @@
  * Application orchestrator: boots the 3D scene, connectivity, chat intent,
  * voice guidance, friends, and connection-quality indicators.
  */
-import { MapScene } from "./map3d.js?v=cap2";
-import { Navigator } from "./nav.js?v=cap2";
-import { IntentEngine } from "./intent.js?v=cap2";
-import { Speaker, Listener, Guidance } from "./voice.js?v=cap2";
-import { Bus, GpsPublisher } from "./net.js?v=cap2";
-import { Social } from "./supa.js?v=cap2";
+import { MapScene } from "./map3d.js?v=print5";
+import { Navigator } from "./nav.js?v=print5";
+import { IntentEngine } from "./intent.js?v=print5";
+import { Speaker, Listener, Guidance } from "./voice.js?v=print5";
+import { Bus, GpsPublisher } from "./net.js?v=print5";
+import { Social } from "./supa.js?v=print5";
 
 const CFG = window.NAV_CONFIG;
+
+const svg = (paths) =>
+  `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
+const ICON = {
+  book: svg('<path d="M5 4.5h9a3 3 0 0 1 3 3v12H8a3 3 0 0 1-3-3z"/><path d="M5 16.5a3 3 0 0 1 3-3h9"/>'),
+  lock: svg('<rect x="5.5" y="11" width="13" height="9" rx="1.5"/><path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3"/>'),
+  check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+};
 const $ = (id) => document.getElementById(id);
 const DEFAULT_START = { floor: 1, x: 26.5, y: 26.5 }; // 1F entrance lobby
 const FLOORS = ["1", "2", "3", "4", "5"];
@@ -87,7 +95,7 @@ async function boot() {
         welcomeStep = 2;
         $("stepProfile").hidden = true;
         $("stepDevice").hidden = false;
-        btn.textContent = "Start navigating";
+        btn.textContent = "Start";
         setPositionMode(state.mode);
         renderDeviceList();
       } catch (err) {
@@ -129,9 +137,9 @@ function renderLibraryList() {
     const selected = state.library?.id === lib.id;
     const row = el(`<div class="lib-row ${lib.available ? "" : "disabled"} ${selected ? "selected" : ""}"
         role="option" aria-selected="${selected}" tabindex="${lib.available ? 0 : -1}">
-      <span class="lib-icon">${lib.available ? "📚" : "🔒"}</span>
+      <span class="lib-icon">${lib.available ? ICON.book : ICON.lock}</span>
       <span class="lib-text"><b>${esc(lib.name)}</b><span>${esc(lib.location || "")}</span></span>
-      ${lib.available ? '<span class="lib-check">✓</span>' : '<span class="lib-soon">Soon</span>'}</div>`);
+      ${lib.available ? `<span class="lib-check">${ICON.check}</span>` : '<span class="lib-soon">Soon</span>'}</div>`);
     if (lib.available) {
       const pick = () => {
         state.library = lib;
@@ -151,6 +159,14 @@ function renderLibraryList() {
 /** Load the chosen library's map model and build the 3D scene. */
 async function openLibrary(lib) {
   model = await (await fetch(lib.model, { cache: "no-cache" })).json();
+  // 3D labels are drawn to canvas once, so load their fonts first
+  await Promise.race([
+    Promise.all([
+      document.fonts.load('700 84px "Barlow Semi Condensed"'),
+      document.fonts.load('500 40px "Barlow"'),
+    ]),
+    new Promise((r) => setTimeout(r, 1500)),
+  ]).catch(() => {});
   scene = new MapScene($("scene"), model, { onZoneClick: onZoneTap });
   nav = new Navigator(model);
   state.geo = null;
@@ -274,7 +290,7 @@ async function startCore(opts) {
   bus.on(`libnav/user/${state.uid}/control`, (t, payload) => onControl(JSON.parse(payload)));
   bus.on("libnav/engine/status", (t, payload) => {
     state.engineOnline = payload.toString() === "online";
-    if (!state.engineOnline) toast("Position engine offline - live tracking paused", "warn");
+    if (!state.engineOnline) toast("Position server is offline", "warn");
   });
   // live sensor discovery feed (drives the pairing picker + sensor dot)
   bus.on("libnav/directory", (t, payload) => {
@@ -335,19 +351,18 @@ function finalizeStart() {
   if (gpsOnly) $("myFloorSel").value = state.myFloor;
 
   const sensorNote = gpsOnly
-    ? `GPS-only mode - tell me your floor with the "I'm on" selector in the top bar.`
-    : `Sensor ${state.deviceId} is paired with your GPS.`;
+    ? `You're on GPS only, so set your floor with the "I'm on" menu at the top.`
+    : `Sensor ${state.deviceId} is paired.`;
   chatSystem(
-    `Welcome, ${state.name}. ${sensorNote} Ask me for a book subject ` +
-    `("C language", "Qing dynasty history"), a place ("somewhere to study", ` +
-    `"newspapers"), or a friend's name.`
+    `Hi ${state.name}. ${sensorNote} Type a subject ("C language", ` +
+    `"Qing dynasty"), a place ("study space", "newspapers") or a friend's name.`
   );
   speaker.speak(
-    `Welcome to the library navigator, ${state.name}. ` +
+    `Hi ${state.name}. ` +
     (gpsOnly
-      ? `G P S only mode. You are set to floor ${state.myFloor}. `
+      ? `Using G P S only. Floor ${state.myFloor}. `
       : `Sensor ${state.deviceId} paired. `) +
-    (state.blind ? "Voice guidance is on. Type or dictate where you want to go." : "")
+    (state.blind ? "Spoken directions are on. Say or type where you want to go." : "")
   , { interrupt: true });
 }
 
@@ -434,7 +449,7 @@ function ensureGeo(fix) {
       origin: { lat: fix.lat, lng: fix.lng },
       xAxis: { lat: fix.lat, lng: fix.lng + model.site.width / mLng },
     });
-    toast("Test mode: showing your live GPS anywhere. Use ⚙ to align or switch to production.", "ok");
+    toast("Test mode: your position isn't tied to the building yet. Calibrate it in Settings.", "ok");
   }
   return state.geo;
 }
@@ -596,13 +611,13 @@ function onControl(msg) {
     state.lastRejectAt = Date.now();
     if (msg.active) {
       $("capacityText").innerHTML =
-        `Active devices: <b>${msg.active} / ${msg.max || CFG.maxDevices}</b>.<br />` +
-        "You are queued and will connect automatically when a slot frees up.";
+        `<b>${msg.active} of ${msg.max || CFG.maxDevices}</b> devices are in use.<br />` +
+        "You're in the queue and will connect as soon as one frees up.";
     }
     $("capacityOverlay").hidden = false;
-    if (first) speaker.speak("The system is at full capacity. You are in the queue.");
+    if (first) speaker.speak("All slots are taken. You're in the queue.");
   } else if (msg.action === "admit") {
-    if (!state.admitted) toast("A slot opened up - you are connected", "ok");
+    if (!state.admitted) toast("You're connected", "ok");
     state.admitted = true;
     $("capacityOverlay").hidden = true;
   } else if (msg.action === "pair_ok") {
@@ -618,7 +633,7 @@ function onControl(msg) {
     // reopen the picker so the user chooses a different unit (or GPS-only)
     $("stepProfile").hidden = true;
     $("stepDevice").hidden = false;
-    $("startBtn").textContent = "Start navigating";
+    $("startBtn").textContent = "Start";
     $("welcomeModal").hidden = false;
     setPositionMode("esp");
     renderDeviceList();
@@ -632,7 +647,7 @@ setInterval(() => {
   if (!$("capacityOverlay").hidden && Date.now() - (state.lastRejectAt || 0) > 15000) {
     state.admitted = true;
     $("capacityOverlay").hidden = true;
-    toast("Capacity hold cleared - resuming", "ok");
+    toast("Back online", "ok");
   }
 }, 3000);
 
@@ -643,7 +658,7 @@ function navigateTo(target, lead = "") {
     : DEFAULT_START;
   const route = nav.route(start, target, routeProfile());
   if (!route) {
-    chatSystem("Sorry, I could not compute a route to that destination.");
+    chatSystem("Couldn't find a route there.");
     return;
   }
   state.route = route;
@@ -651,7 +666,7 @@ function navigateTo(target, lead = "") {
   scene.showPath(route.points);
   scene.highlightZone(typeof target === "string" ? target : null);
   if (!state.pos) {
-    chatSystem("No live position yet - route starts from the floor 1 entrance.");
+    chatSystem("No position yet, so the route starts at the 1F entrance.");
   }
 
   $("routeBanner").hidden = false;
@@ -680,7 +695,7 @@ function updateRouteBanner(pos) {
   $("routeVia").textContent = `via ${viaLabel}`;
 }
 
-/** Cycle the stair preference (central ⇄ elevator-side) and re-route. */
+/** Swap between the central stairs and the ones by the lift, then re-route. */
 function toggleStairPref() {
   if (state.accessible) {
     toast("Step-free mode is on - routes use the elevator.", "warn");
@@ -706,7 +721,7 @@ function endRoute(arrived = false) {
   $("routeBanner").hidden = true;
   state.route = null;
   state.routeTarget = null;
-  if (arrived) chatSystem("You have arrived. Anything else?");
+  if (arrived) chatSystem("You're there.");
 }
 
 function onZoneTap(zoneId) {
@@ -730,7 +745,7 @@ function openZoneInfo(zone) {
   const img = $("zonePhotoImg");
   const ph = $("zonePhotoPlaceholder");
   const src = zone.photo || `photos/${encodeURIComponent(zone.id)}.jpg`;
-  ph.style.background = zone.color;
+  ph.style.background = `color-mix(in srgb, ${zone.color} 45%, #e4dccb)`;
   ph.textContent = "";
   img.hidden = true;
   ph.hidden = false;
@@ -785,11 +800,11 @@ function submitChat() {
       speaker.speak(reply);
       navigateTo(best.id);
     } else {
-      chatSystem("No reachable destination found.");
+      chatSystem("Nowhere reachable matched that.");
     }
   } else {
-    chatSystem(res.reply || "Sorry, I did not understand that.");
-    speaker.speak(res.reply || "Sorry, I did not understand that.");
+    chatSystem(res.reply || "Not sure where that is.");
+    speaker.speak(res.reply || "Not sure where that is.");
   }
 }
 
@@ -978,7 +993,7 @@ function wireUi() {
     if (!q) return;
     const results = await social.searchUsers(q);
     const box = $("friendSearchResults");
-    box.innerHTML = results.length ? "" : "<div class='fmeta pad'>No users found.</div>";
+    box.innerHTML = results.length ? "" : "<div class='fmeta pad'>Nobody by that name.</div>";
     for (const r of results) {
       const row = el(`<div class="friend-row"><span class="fname">${esc(r.display_name)}</span>
         <button class="mini ok">Add</button></div>`);
@@ -1036,7 +1051,7 @@ function wireUi() {
     state.smoother.reset();
     if (gps?.lastFix) showLocalGps(gps.lastFix);
     $("settingsModal").hidden = true;
-    toast("Geo anchors saved and broadcast to the engine", "ok");
+    toast("Calibration saved", "ok");
   });
 }
 
