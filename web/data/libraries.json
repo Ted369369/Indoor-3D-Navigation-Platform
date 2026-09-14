@@ -2,9 +2,16 @@
   "libraries": [
     {
       "id": "main",
-      "name": "Main Library",
-      "location": "Five floors: periodicals, reference, books, study space",
+      "name": "Taipei Public Library, Main Library",
+      "location": "Taipei. Five floors: periodicals, reference, books, study space",
       "model": "data/map_model.json",
+      "available": true
+    },
+    {
+      "id": "yorba-linda",
+      "name": "Yorba Linda Public Library",
+      "location": "Yorba Linda, California. Two floors: children, adults, teens",
+      "model": "data/yorba_linda.json",
       "available": true
     },
     {
