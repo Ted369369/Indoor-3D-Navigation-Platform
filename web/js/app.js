@@ -70,7 +70,7 @@ async function boot() {
     if (welcomeStep === 0) {
       if (!state.library) return;
       btn.disabled = true;
-      btn.textContent = "Loading…";
+      btn.textContent = "Loading...";
       try {
         await openLibrary(state.library);
         welcomeStep = 1;
@@ -85,7 +85,7 @@ async function boot() {
       }
     } else if (welcomeStep === 1) {
       btn.disabled = true;
-      btn.textContent = "Connecting…";
+      btn.textContent = "Connecting...";
       try {
         await startCore({
           name: $("nameInput").value.trim() || "Visitor",
@@ -200,7 +200,7 @@ function renderDeviceList() {
   if (!devices.length) {
     box.innerHTML =
       `<div class="dev-empty"><div class="spinner"></div>` +
-      `Searching for nearby sensors… make sure your unit is powered on.</div>`;
+      `Looking for sensors nearby. Make sure yours is switched on.</div>`;
     return;
   }
 

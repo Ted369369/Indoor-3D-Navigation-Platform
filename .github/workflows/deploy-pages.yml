@@ -29,3 +29,5 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./web
+          # keep gh-pages to a single commit; its history isn't useful
+          force_orphan: true
