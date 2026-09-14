@@ -1,9 +1,9 @@
-# MQTT Topics Reference
+# MQTT topics
 
-Every MQTT topic used by the Library 3D Navigation system, with direction,
-QoS, retain flag, rate, publisher/subscriber, and full payload schemas.
+All MQTT topics the project uses: who sends them, QoS, retain flag, how
+often, and what the payload looks like.
 
-- **Broker**: HiveMQ Cloud — TLS `8883` (firmware + engine), WebSocket/TLS `8884` (web app).
+- **Broker**: HiveMQ Cloud. TLS on `8883` for the firmware and engine, WebSocket over TLS on `8884` for the web app.
 - **Namespace**: everything lives under `libnav/`.
 - **Encoding**: payloads are UTF-8. JSON unless noted as a plain string.
 - **Placeholders**: `<DEVICE_ID>` = ESP node id (e.g. `NAV-001`, `NAV-REF`);
@@ -13,9 +13,9 @@ QoS, retain flag, rate, publisher/subscriber, and full payload schemas.
 
 | Actor | Publishes | Subscribes |
 |---|---|---|
-| **ESP8266 node** (firmware) | `dev/<id>/telemetry`, `dev/<id>/status`, `dev/<id>/init` | — |
-| **Position engine** (Python) | `user/<uid>/pos`, `user/<uid>/control`, `directory`, `engine/status` | `dev/+/telemetry`, `dev/+/status`, `dev/+/init`, `user/+/gps`, `user/+/pair`, `user/+/floor`, `user/+/presence`, `site/anchors` |
-| **Web app** (phone/browser) | `user/<uid>/gps`, `user/<uid>/pair`, `user/<uid>/floor`, `user/<uid>/presence`, `user/<uid>/echo`, `site/anchors` | `user/<uid>/pos`, `user/<uid>/control`, `user/<uid>/echo`, `directory`, `engine/status`, `dev/+/telemetry`, and per-friend `user/<friendUid>/pos` + `user/<friendUid>/presence` |
+| **ESP8266 node** (firmware) | `dev/<id>/telemetry`, `dev/<id>/status`, `dev/<id>/init` | nothing |
+| **Position engine** (Python) | `user/<uid>/pos`, `user/<uid>/control`, `directory`, `capacity`, `engine/status` | `dev/+/telemetry`, `dev/+/status`, `dev/+/init`, `user/+/gps`, `user/+/pair`, `user/+/floor`, `user/+/presence`, `site/anchors` |
+| **Web app** (phone/browser) | `user/<uid>/gps`, `user/<uid>/pair`, `user/<uid>/floor`, `user/<uid>/presence`, `user/<uid>/echo`, `site/anchors` | `user/<uid>/pos`, `user/<uid>/control`, `user/<uid>/echo`, `directory`, `capacity`, `engine/status`, `dev/+/telemetry`, and per-friend `user/<friendUid>/pos` + `user/<friendUid>/presence` |
 
 ---
 
@@ -67,7 +67,7 @@ Presence. Retained so subscribers learn the last known state immediately.
   if the node drops. `online` is published by the node on connect (retained).
 
 ### `libnav/dev/<DEVICE_ID>/init`
-Boot announcement — published **once per power-up**, on the first successful
+Boot message, published **once per power-up**, on the first successful
 MQTT connect. Retained. Lets the engine/web confirm a node booted and see why
 it last restarted.
 
@@ -91,7 +91,7 @@ it last restarted.
 ## User topics (web app ↔ engine)
 
 ### `libnav/user/<uid>/gps`
-Phone geolocation. Published ~1 Hz (`gpsPublishHz`) while a fix is available.
+Phone location. Published ~1 Hz (`gpsPublishHz`) while a fix is available.
 
 ```json
 { "lat": 25.029137, "lng": 121.53819, "acc": 12.0, "ts": 1721631000000 }
@@ -183,8 +183,8 @@ so the engine (and other clients) pick it up on connect and apply it live.
 ```
 
 ### `libnav/directory`
-Live sensor directory published by the engine — the source for the app's
-"nearby sensors" picker. Retained; republished only when something changes (or
+List of sensors, published by the engine. The app's sensor picker is built
+from it. Retained; republished only when something changes (or
 at least every 10 s).
 
 ```json
@@ -218,13 +218,13 @@ The web app warns "position engine offline" when it sees `offline`.
 
 ---
 
-## Conventions & notes
+## Notes
 
 - **Wildcards**: the engine subscribes with `+` (single level), e.g.
   `libnav/dev/+/telemetry` matches every device. The web app subscribes to its
   own `<uid>` topics plus each accepted friend's `pos`/`presence`.
 - **Retained topics** (`status`, `init`, `pair`, `floor`, `presence`, `pos`,
-  `anchors`, `directory`, `engine/status`) always hold the latest value, so a
+  `anchors`, `directory`, `capacity`, `engine/status`) always hold the latest value, so a
   late subscriber is immediately current. **Non-retained** streams
   (`telemetry`, `gps`, `echo`, `control`) are live-only.
 - **Clearing a retained topic**: publish an empty payload with retain=true
@@ -235,7 +235,7 @@ The web app warns "position engine offline" when it sees `offline`.
 - **Capacity**: the engine admits at most `MAX_ACTIVE_USERS` (default 5) via
   `control`; extra clients are queued and admitted automatically as slots free.
 
-## Broker credential scopes (recommended)
+## Broker accounts
 
 | Username | Used by | Minimum permission |
 |---|---|---|

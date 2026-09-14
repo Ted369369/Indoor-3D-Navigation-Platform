@@ -1,201 +1,204 @@
-# Setup Guide — Library 3D Navigation
+# Setup
 
-End-to-end deployment: MQTT broker → Supabase → firmware → position engine → web app.
-Total time: roughly 45 minutes plus firmware flashing.
+Order: MQTT broker, Supabase, firmware, position engine, web app. Expect about
+45 minutes plus the time to flash the sensors.
 
-## Architecture recap
+## Overview
 
 ```
-ESP8266 + BMP390 (user, x5) ─┐
-ESP8266 + BMP390 (reference) ─┤ TLS 8883 ┌──────────────┐
-                              ├─────────►│ HiveMQ Cloud │◄──── WSS 8884 ── Phone web app
-Python position engine ───────┘          └──────────────┘                  (GPS + UI)
-        │                                                                       │
-        └── sessions (service key) ──► Supabase ◄── auth / friends / keywords ──┘
+ESP8266 + BMP390 (carried, up to 5) --+
+ESP8266 + BMP390 (reference on 1F) ---+-- TLS 8883 --> HiveMQ Cloud <-- WSS 8884 -- phone web app
+Python position engine ---------------+                                              (GPS + map)
+        |                                                                                 |
+        +-- sessions (service key) --> Supabase <-- login / friends / keywords -----------+
 ```
 
-- Phones publish GPS; ESP nodes publish pressure; the engine fuses both into
-  `libnav/user/<uid>/pos`, which all web clients (you + your friends) render.
-- The **reference node** is a sixth ESP8266 fixed on the **entrance floor, 1F**
-  (z = 0). It cancels weather-induced pressure drift for everyone.
+- Phones publish GPS, sensors publish pressure, and the engine combines them
+  into `libnav/user/<uid>/pos`. Every web client (you and your friends) draws
+  that topic.
+- The **reference sensor** is a sixth ESP8266 that stays on **1F** (the
+  entrance floor, z = 0). Everyone's floor is measured against it, which
+  removes pressure changes caused by the weather.
 
 ---
 
 ## 1. HiveMQ Cloud (10 min)
 
-1. Create a free cluster at <https://console.hivemq.cloud> (Serverless/Free: 100
-   connections — far above the 5-device cap).
-2. Note the hostname, e.g. `abc123.s1.eu.hivemq.cloud`.
-   - Firmware + engine use TLS port **8883**; the web app uses WebSocket port **8884**.
-3. Under **Access Management**, create three credentials:
-   | Username | Used by | Suggested permission |
-   |---|---|---|
-   | `esp-node` | all ESP8266 devices | publish `libnav/dev/#` |
-   | `engine` | position engine | publish + subscribe `libnav/#` |
-   | `webapp` | browsers | publish `libnav/user/#`, `libnav/site/#`; subscribe `libnav/#` |
+1. Create a free cluster at <https://console.hivemq.cloud>. The free plan
+   allows 100 connections, which is plenty for 5 sensors.
+2. Write down the hostname, e.g. `abc123.s1.eu.hivemq.cloud`.
+   The firmware and the engine use TLS on port **8883**. The web app uses
+   WebSockets on port **8884**.
+3. Under **Access Management** create three accounts:
 
-## 2. Supabase (10 min) — optional but required for friends
+   | Username | Used by | Permissions |
+   |---|---|---|
+   | `esp-node` | all ESP8266 sensors | publish `libnav/dev/#` |
+   | `engine` | position engine | publish and subscribe `libnav/#` |
+   | `webapp` | browsers | publish `libnav/user/#` and `libnav/site/#`, subscribe `libnav/#` |
+
+## 2. Supabase (10 min, optional)
+
+Only needed for friends. Without it the app runs on its own and hides the
+friends panel; navigation and voice still work.
 
 1. Create a project at <https://supabase.com>.
-2. **Authentication → Sign In / Up → Anonymous sign-ins: enable.**
-3. **SQL Editor** → paste and run [`supabase/schema.sql`](../supabase/schema.sql).
-4. From **Settings → API** copy:
-   - Project URL + `anon` key → `web/config.js`
-   - `service_role` key → `backend/.env` (never put this in the web app)
+2. In **Authentication > Sign In / Up**, turn on **Anonymous sign-ins**.
+3. In the **SQL Editor**, run [`supabase/schema.sql`](../supabase/schema.sql).
+4. From **Settings > API** copy:
+   - the Project URL and `anon` key into `web/config.js`
+   - the `service_role` key into `backend/.env` (never into the web app)
 
-Skipping Supabase: the web app auto-runs in solo mode (navigation and voice
-work; friend features hide themselves).
+## 3. Firmware (about 10 min per sensor)
 
-## 3. Firmware (per device, ~10 min)
+Any ESP8266 board (NodeMCU, Wemos D1 mini) and a BMP390 breakout.
 
-Boards: any ESP8266 (NodeMCU, Wemos D1 mini). Sensor: BMP390 breakout.
+Wiring over I²C, using GPIO numbers: `VIN-3V3  GND-GND  SDA-GPIO4  SCL-GPIO5`
 
-Wiring (I²C, generic GPIO numbers): `VIN→3V3  GND→GND  SDA→GPIO4  SCL→GPIO5`
+On NodeMCU and Wemos boards that is **D2 = GPIO4 (SDA)** and
+**D1 = GPIO5 (SCL)**. For other pins, change `I2C_SDA_PIN` and `I2C_SCL_PIN` at
+the top of the sketch. The firmware tries address `0x77` first, then `0x76`
+(boards with SDO tied to GND), and prints the address and pins it used at boot.
 
-On a NodeMCU / Wemos silkscreen those are **D2 = GPIO4 (SDA)** and
-**D1 = GPIO5 (SCL)**. To use different pins, change `I2C_SDA_PIN` /
-`I2C_SCL_PIN` at the top of the sketch — no other edits needed. The firmware
-probes I²C address `0x77` first and falls back to `0x76` (boards with SDO tied
-to GND), and prints which address and pins it found on at boot.
+1. In the Arduino IDE, install the **esp8266** core from the Boards Manager,
+   then **Adafruit BMP3XX** (with its dependencies) and **PubSubClient** from
+   the Library Manager.
+2. In `esp8266_bmp390.ino`, set `DEVICE_ID`, different for every unit.
+   Carried sensors are `NAV-001` to `NAV-005`; the reference is `NAV-REF`
+   with `NODE_ROLE ROLE_REFERENCE`.
+3. Copy `secrets.h.example` to `secrets.h` next to the sketch and fill it in
+   (it's git-ignored):
+   - Wi-Fi: the library network first, your phone hotspot as the fallback.
+     The sensor uses less than 1 KB/s, so it doesn't eat into your data.
+   - `MQTT_HOST`, `MQTT_USER`, `MQTT_PASS` from step 1.
+4. Copy `certs.h.example` to `certs.h`, download
+   <https://letsencrypt.org/certs/isrgrootx1.pem> and paste it in place of the
+   placeholder. Without it the sensor still connects encrypted, but it can't
+   verify the broker and prints a warning. Do this before using it for real.
+5. Flash it and open the serial monitor at 115200 baud. You should see Wi-Fi,
+   NTP and MQTT connect. The LED blinks on every publish (twice a second).
+6. Put `NAV-REF` anywhere on **1F** on a USB power adapter and leave it there.
+   Stick a label with the `DEVICE_ID` on each carried sensor. The app lists
+   sensors that are switched on, and the label is how a visitor knows which
+   entry is the one in their hand.
 
-1. Arduino IDE → Boards Manager → install **esp8266** core.
-   Library Manager → install **Adafruit BMP3XX** (accept dependencies) and
-   **PubSubClient**.
-2. Open `firmware/esp8266_bmp390/esp8266_bmp390.ino` and edit the
-   configuration block:
-   - `DEVICE_ID`: unique per unit — users: `NAV-001` … `NAV-005`,
-     reference: `NAV-REF` with `NODE_ROLE ROLE_REFERENCE`.
-   - Wi-Fi: venue SSID first; your phone-hotspot SSID as automatic fallback
-     (hotspot mode costs the phone < 1 KB/s — browsing stays unaffected).
-   - `MQTT_HOST` / `MQTT_USER` / `MQTT_PASS` from step 1.
-3. TLS trust: download <https://letsencrypt.org/certs/isrgrootx1.pem> and paste
-   its contents into `certs.h` (replacing the placeholder line). Without it the
-   node still connects but logs a warning and skips server authentication.
-4. Flash at 115200 baud; the serial monitor shows Wi-Fi, NTP, and MQTT status.
-   The LED blinks briefly on every publish (2 Hz).
-5. Place `NAV-REF` anywhere on **floor 1** (the entrance floor, z = 0), powered
-   permanently (USB adapter).
-   Label each user unit with its `DEVICE_ID`: powered-on units are discovered
-   automatically and listed in the app's pairing picker, and the label lets a
-   visitor match the physical unit in their hand to the on-screen entry.
+### If the BMP390 isn't found
 
-### If the BMP390 is not detected
+Flash `firmware/i2c_scanner/i2c_scanner.ino` instead. Every 3 seconds it prints:
 
-Flash `firmware/i2c_scanner/i2c_scanner.ino` instead — a standalone I²C
-diagnostic that prints, every 3 seconds:
+- the **idle level** of SDA and SCL (to check the pull-ups),
+- a **bus recovery** attempt if SDA is stuck low,
+- an **address scan**, and whether the BMP390 answered at `0x77` or `0x76`.
 
-- **idle levels** on SDA/SCL (verifies the pull-up resistors),
-- an automatic **bus recovery** attempt if SDA is stuck low,
-- a full **address scan**, naming anything it finds and saying explicitly
-  whether the BMP390 answered at `0x77` or `0x76`.
-
-It uses the same pins as the main firmware, so a pass here means the main
-sketch will find the sensor too.
+It uses the same pins as the main sketch, so if the scanner finds the sensor,
+the main firmware will too.
 
 ## 4. Position engine (5 min)
 
-Runs anywhere with Python 3.10+ and internet (a PC, Raspberry Pi, or small VM):
+Needs Python 3.10+ and internet. A laptop, a Raspberry Pi or a small VM is
+fine.
 
 ```bash
 cd backend
 python -m venv .venv && .venv\Scripts\activate     # Windows
 pip install -r requirements.txt
-copy .env.example .env                              # then edit .env
+copy .env.example .env                              # then fill in .env
 python position_engine.py
 ```
 
-Expected log: `mqtt connected`, `map model loaded`, then per-user admissions
-and floor changes. The engine enforces `MAX_ACTIVE_USERS=5`; a sixth phone
-sees the queue overlay until a slot frees.
+You should see `mqtt connected` and `map model loaded`, then a line each time
+someone is admitted or changes floor. At most 5 users are active
+(`MAX_ACTIVE_USERS=5`); a sixth phone sees the waiting screen until someone
+leaves.
 
-### Optional: development test without hardware
+### Testing without hardware
 
-Not part of the real deployment — only for developing on a desk with no ESPs:
-`python simulator.py --users 2` fakes the reference node plus visitors walking
-floors 2 → 4 → 5 (their `SIM-xxx` units also show up in the pairing picker).
-Stop it before real use; it frees its slots immediately on exit.
+`python simulator.py --users 2` fakes the reference sensor plus visitors
+walking between floors. Their `SIM-xxx` units show up in the sensor list like
+real ones. This is only for working at a desk; stop it before real use. It
+gives back its slots as soon as it exits.
 
 ## 5. Web app (10 min)
 
-1. Edit `web/config.js`: MQTT WSS URL (`wss://<host>:8884/mqtt`), `webapp`
-   credentials, and (optionally) the Supabase URL + anon key.
-2. Deploy the `web/` folder to any **HTTPS** static host — GitHub Pages,
-   Netlify, Vercel, Cloudflare Pages. HTTPS is mandatory: browsers refuse
-   geolocation on plain HTTP (localhost is exempt for development).
-   Local preview: `python -m http.server 8123 --directory web`.
-3. First launch on a phone: **choose a library** (currently one; the picker is
-   built to list more as they are added — see below), enter a display name
-   (enable blind mode or step-free routing if needed), grant the location
-   permission, then choose a **positioning mode**:
-   - **ESP sensor + phone GPS** — the app scans for nearby powered-on sensors
-     and lists up to 5, strongest signal first, with live status (Available /
-     In use / Offline). Tap the unit whose printed ID you are holding —
-     pairing is always an explicit choice, and a unit already claimed by
-     another visitor cannot be selected. That ESP8266's pressure stream and
-     your phone's GPS are then fused as one signal pair with automatic floor
-     detection.
-   - **Phone GPS only** — no hardware at all. Horizontal position comes from
-     GPS; the floor is whatever you pick in the "I'm on …" selector that
-     appears in the top bar (remember to change it when you take the stairs).
+1. Edit `web/config.js`: the WebSocket URL (`wss://<host>:8884/mqtt`), the
+   `webapp` login, and optionally the Supabase URL and anon key.
+2. Put the `web/` folder on any static host with **HTTPS** (GitHub Pages,
+   Netlify, Vercel, Cloudflare Pages). Browsers won't give GPS to plain HTTP
+   pages, except on localhost.
+   To try it locally: `python -m http.server 8123 --directory web`.
+3. On a phone the first screens are:
+   - **Pick a library.** There's only one for now; see "Adding a library"
+     below.
+   - **Your name**, plus low-vision mode or step-free routes if you need them.
+     Allow location access when the browser asks.
+   - **How to locate you:**
+     - **Sensor and phone GPS.** The app lists up to 5 sensors that are
+       switched on, strongest signal first, each marked Available, In use or
+       Offline. Tap the one whose label matches the unit you're holding. A
+       sensor someone else is using can't be picked. The floor is then
+       detected automatically.
+     - **Phone GPS only.** No hardware. Position on the floor comes from GPS,
+       and you set the floor with the "I'm on" menu in the top bar. Remember to
+       change it when you take the stairs.
 
-## Test mode vs production mode
+## Test mode and production mode
 
-The gear (⚙) menu has an **App mode** switch:
+Settings (the sliders button) has a **Mode** switch:
 
-- **Test mode** (default) — your marker shows anywhere you are, auto-anchored to
-  where you first stood. Good for demos and development away from the building.
-- **Production mode** — your marker only appears when your phone is within
-  **200 m of the library** (centre `25.029137, 121.53819`); farther away it
-  hides the marker and shows a "you are N m from the library" notice. Position
-  is anchored to the real building coordinates, not to where you launched the
-  app. Set this for the live public deployment.
+- **Test** (default): your marker shows wherever you are, placed relative to
+  where you started. Useful for demos away from the building.
+- **Production**: your marker only shows when the phone is within **200 m of
+  the library** (centre `25.029137, 121.53819`). Further away the marker is
+  hidden and a notice says how far you are. Position uses the real building
+  coordinates. Use this for the public site.
 
-The centre point and radius live in `web/data/map_model.json`
-(`site.center` and `site.geofenceRadius`).
+The centre and radius are `site.center` and `site.geofenceRadius` in
+`web/data/map_model.json`.
 
-## Geo calibration (once, 5 min)
+## Map calibration (once, 5 min)
 
-The 3D map needs to know where the building sits on Earth:
+The map has to know where the building is:
 
-1. Open the web app → gear button → **Geo calibration**.
-2. Stand at the building's **north-west corner** (top-left of the hand-drawn
-   plan) → "Use my location". Repeat at the **north-east corner** (50 m along
-   the top edge) — or paste coordinates read off Google Maps.
-3. Save. Anchors broadcast to the engine over a retained MQTT message and
-   apply immediately to everyone.
+1. Open the app, then Settings, then **Map calibration**.
+2. Stand at the **north-west corner** of the building (top left of the drawn
+   plan) and tap "Use my location". Do the same at the **north-east corner**
+   (50 m along the top edge). You can also paste coordinates from Google Maps.
+3. Save. The points go to the engine as a retained MQTT message and apply to
+   everyone straight away.
 
-## Operations notes
+## Notes
 
-- **Connection quality**: the three dots in the top bar are server / GPS /
-  sensor; the number is live broker round-trip latency. Hover for detail.
-- **Floor detection** is differential barometry: ±0.25 m sensor accuracy vs.
-  3.8 m floor spacing gives a wide margin, and a 2 s hysteresis prevents
-  flapping inside stairwells. If floors read wrong, confirm the reference node
-  is online (`libnav/dev/NAV-REF/status`) and actually on floor 1.
-- **GPS indoors** is 5–30 m; the engine's Kalman filter + snap-to-corridor
-  keep the marker sensible. Expect zone-level, not shelf-level, accuracy.
-- **iOS**: voice *output* (guidance) works; voice *input* (dictation button)
-  hides itself because Safari lacks SpeechRecognition. Everything else is
-  identical to Android.
-- **Floors & stairs**: the model covers floors 1–5 (1F service, 2F periodicals,
-  3F reference, 4F & 5F books) at 3.8 m spacing. Vertical travel uses one of two
-  staircases — the **central stairs/escalator** or the **stairs by the
-  elevator** — or the **elevator** (step-free). Routes use a single core; the
-  chip in the route banner switches between the two staircases, and the
-  step-free toggle forces the elevator.
-- **Zone photos**: tapping a zone opens an info card. Drop a real photo at
-  `web/photos/<ZONE-ID>.jpg` (e.g. `3F-REF.jpg`) and it shows automatically —
-  see `web/photos/README.md`. Only publish photos you have the right to use.
-- **Editing the map**: all geometry, zones (with optional `desc`/`photo`),
-  walkable graph, stair cores, and the class → zone table live in
-  `web/data/map_model.json`. Coordinates are metres: x = 0–50 west→east,
-  y = 0–35 top→bottom of the drawing. The engine reads the same file — restart
-  it after edits.
-- **Adding a library**: append an entry to `web/data/libraries.json`
-  (`id`, `name`, `location`, `model` = path to that library's map JSON,
-  `available: true`) and drop its map model alongside `map_model.json`. It
-  appears in the startup picker automatically; entries with `available: false`
-  render as greyed-out "coming soon" cards.
-- **Adding vocabulary**: insert rows into the Supabase `keywords` table
-  (term, aliases, zone_id) — clients pick them up on next load. The built-in
-  dictionary is in `web/js/intent.js`.
+- **Status indicators.** NET, GPS and ALT in the top bar are the broker, the
+  phone's GPS and the pressure sensor. The number next to them is the round
+  trip to the broker in milliseconds.
+- **Floor detection.** The BMP390 is accurate to about 0.25 m and floors are
+  3.8 m apart, so there's a lot of margin. The floor only changes after 4
+  matching samples (2 seconds), so it doesn't flicker on the stairs. If floors
+  look wrong, check that the reference sensor is online
+  (`libnav/dev/NAV-REF/status`) and really is on 1F.
+- **GPS indoors** is off by 5 to 30 m. The engine's filter and the snapping to
+  corridors keep the marker in a sensible place, but expect "right area", not
+  "right shelf".
+- **iPhone.** Spoken directions work. The microphone button is hidden because
+  Safari doesn't support speech recognition. Everything else is the same as on
+  Android.
+- **Floors and stairs.** The model covers 1F to 5F, 3.8 m apart. To change
+  floors a route uses the **central stairs and escalator**, the **stairs next to
+  the elevator**, or the **elevator** for step-free routes, and sticks to the
+  same one the whole way. The button in the route sign switches between the two
+  staircases; the step-free setting forces the elevator.
+- **Zone photos.** Tapping a zone opens a card. Put a photo at
+  `web/photos/<ZONE-ID>.jpg` (e.g. `3F-REF.jpg`) and it appears there. See
+  `web/photos/README.md`, and only use photos you're allowed to publish.
+- **Editing the map.** Outlines, zones (with optional `desc` and `photo`), the
+  walkable paths, the stair cores and the class-number-to-zone table are all in
+  `web/data/map_model.json`. Coordinates are in metres: x from 0 to 50 west to
+  east, y from 0 to 35 from the top of the drawing to the bottom. The engine
+  reads the same file, so restart it after editing.
+- **Adding a library.** Add an entry to `web/data/libraries.json` (`id`,
+  `name`, `location`, `model` pointing at its map file, `available: true`) and
+  put its map file next to `map_model.json`. It appears on the first screen.
+  Entries with `available: false` show greyed out as "Soon".
+- **Adding search words.** Insert rows into the Supabase `keywords` table
+  (term, aliases, zone_id). Phones pick them up the next time they load the
+  app. The built-in word list is in `web/js/intent.js`.

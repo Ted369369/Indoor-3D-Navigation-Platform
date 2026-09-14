@@ -1,30 +1,35 @@
 #!/usr/bin/env python3
 """
 Library 3D Navigation - position engine
-=======================================
-Broker-side fusion service. Subscribes to raw device pressure and phone GPS,
-produces smoothed 3D positions that every client renders identically.
+
+Reads sensor pressure and phone GPS from MQTT and publishes one smoothed
+position per user, so every client draws the same thing.
 
 Pipeline per user:
   GPS (lat/lng)  -> local metres (geo anchors) -> 2D Kalman (constant velocity)
   pressure (Pa)  -> altitude vs. fixed reference node (hypsometric formula)
-                 -> floor classifier with hysteresis over {2F, 4F, 5F}
+                 -> floor (1F-5F), only switched after 4 agreeing samples
   fused (x,y)    -> snapped to the walkable graph so markers stay in corridors
   publish        -> libnav/user/<uid>/pos  (retained, 2 Hz)
 
-Also enforces the concurrent-device cap (default 5) and optionally logs
-sessions to Supabase (service-role key).
+Also limits how many users are active at once (default 5), publishes the
+sensor list and occupancy, and can log sessions to Supabase (service-role key).
 
 MQTT topics consumed:
   libnav/dev/+/telemetry   {"id","role","seq","p","t","rssi","up"}
   libnav/dev/+/status      "online"/"offline" (retained LWT)
+  libnav/dev/+/init        boot info (retained)
   libnav/user/+/gps        {"lat","lng","acc","ts"}
   libnav/user/+/pair       {"device":"NAV-001"} (retained; empty = unpair)
+  libnav/user/+/floor      {"floor":4} (retained; empty = use the sensor)
+  libnav/user/+/presence   "online"/"offline" (retained LWT)
   libnav/site/anchors      {"origin":{lat,lng},"xAxis":{lat,lng}} (retained)
 
 MQTT topics produced:
   libnav/user/<uid>/pos     {"x","y","z","floor","q":{...},"ts"} (retained)
-  libnav/user/<uid>/control {"action":"admit"|"reject","reason","slots"}
+  libnav/user/<uid>/control {"action","reason","slots","active","max","device"}
+  libnav/directory          {"devices":[...],"ts"} (retained)
+  libnav/capacity           {"active","waiting","max","ts"} (retained)
   libnav/engine/status      "online"/"offline" (retained LWT)
 
 Configuration: .env file or environment (see .env.example in this folder).
