@@ -1,0 +1,236 @@
+{
+  "site": {
+    "name": "Yorba Linda Public Library",
+    "address": "4852 Lakeview Ave, Yorba Linda, CA 92886, USA",
+    "width": 98,
+    "depth": 44,
+    "floorHeight": 5.5,
+    "walkSpeed": 1.2,
+    "geoAnchors": {
+      "comment": "From the OpenStreetMap footprint (way 1111599863), north-up. origin = NW corner of the bounding box (0,0), xAxis = (98,0).",
+      "origin": {
+        "lat": 33.8909597,
+        "lng": -117.8111386
+      },
+      "xAxis": {
+        "lat": 33.8909597,
+        "lng": -117.8100781
+      }
+    },
+    "center": {
+      "lat": 33.890775,
+      "lng": -117.810613
+    },
+    "geofenceRadius": 200,
+    "start": {
+      "floor": 1,
+      "x": 59.9,
+      "y": 2.7,
+      "label": "the main entrance"
+    },
+    "cores": {
+      "central": "Grand staircase",
+      "west": "West stairs",
+      "elevator": "Elevator"
+    },
+    "floorLanding": {
+      "1": "Y1-STAIR",
+      "2": "Y2-STAIR"
+    },
+    "quickChips": [
+      {
+        "label": "Study rooms",
+        "q": "group study"
+      },
+      {
+        "label": "Children's books",
+        "q": "children's books"
+      },
+      {
+        "label": "Restrooms",
+        "q": "restroom"
+      },
+      {
+        "label": "Teen Loft",
+        "q": "teen loft"
+      }
+    ],
+    "examples": "a subject (\"cooking\", \"US history\"), a place (\"storytime\", \"teen loft\")",
+    "searchHint": "Try a subject like \"cooking\", \"US history\" or \"picture books\", or a place like \"storytime\", \"teen loft\", \"passports\" or \"restroom\".",
+    "sources": [
+      "https://ylpl.org/librarytour/ (lower and upper level campus maps)",
+      "https://www.openstreetmap.org/way/1111599863 (building footprint)"
+    ],
+    "floors": [
+      {
+        "level": 1,
+        "z": 0.0,
+        "label": "Floor 1: Lower level: lobby, children, community room"
+      },
+      {
+        "level": 2,
+        "z": 5.5,
+        "label": "Floor 2: Upper level: adults, teens, study rooms"
+      }
+    ]
+  },
+  "floors": {
+    "1": {
+      "outline": [[3.6, 10.8], [27.6, 10.3], [62.7, 0.0], [74.0, 2.8], [73.2, 5.2], [97.2, 11.7], [95.0, 20.9], [92.7, 20.9], [92.8, 37.4], [42.5, 37.5], [28.1, 41.6], [2.6, 34.8], [4.6, 26.0], [0.0, 24.7]],
+      "zones": [
+        {"id": "Y1-LB", "name": "Lobby and main entrance", "class": null, "kind": "service", "color": "#3f6fa8", "node": "y1-lobby", "desc": "Double-height entry from the paseo on the north side. Circulation desk, checkout, holds pickup and the automated materials handling system. The grand staircase to the upper level starts here.", "poly": [[40.9, 6.0], [60.5, 0.5], [68.1, 3.8], [66.4, 5.2], [64.1, 15.2], [56.5, 17.4], [44.5, 21.2]]},
+        {"id": "Y1-STAIR", "name": "Grand staircase (lower level)", "class": null, "kind": "stairs", "color": "#aab4c8", "node": "y1-stair", "poly": [[44.3, 8.5], [49.3, 7.3], [51.8, 15.7], [46.6, 17.4]]},
+        {"id": "Y1-ELEV", "name": "Elevator (lower level)", "class": null, "kind": "elevator", "color": "#aab4c8", "node": "y1-elev", "desc": "Position estimated: the library's public map doesn't show it.", "poly": [[39.3, 7.3], [42.7, 6.8], [43.0, 10.0], [39.6, 10.6]]},
+        {"id": "Y1-WS", "name": "West stairs (lower level)", "class": null, "kind": "stairs", "color": "#aab4c8", "node": "y1-wstair", "desc": "Position estimated: the library's public map doesn't show it.", "poly": [[0.3, 19.8], [7.6, 19.8], [7.6, 25.5], [0.3, 24.1]]},
+        {"id": "Y1-CH", "name": "Children's area", "class": null, "kind": "collection", "color": "#f0c455", "node": "y1-child", "desc": "Children's books, seating and computers. Reached from the lobby down the sloped walkway past the staircase.", "poly": [[2.6, 9.8], [10.8, 9.8], [10.8, 12.5], [15.6, 12.5], [15.6, 9.8], [25.2, 9.8], [32.5, 37.2], [25.4, 39.1], [15.2, 36.1], [15.2, 27.8], [11.5, 26.6], [7.6, 25.5], [7.6, 19.8], [0.3, 19.5]]},
+        {"id": "Y1-NK", "name": "Family reading nook", "class": null, "kind": "reading", "color": "#f6dc8c", "node": "y1-nook", "poly": [[10.8, 9.8], [15.6, 9.8], [15.6, 12.5], [10.8, 12.5]]},
+        {"id": "Y1-PL", "name": "Children's play area (outdoor)", "class": null, "kind": "outdoor", "color": "#f6dc8c", "node": "y1-play", "desc": "Small secure outdoor play space off the children's area.", "poly": [[4.2, 4.5], [19.5, 4.5], [19.5, 8.8], [4.2, 8.8]]},
+        {"id": "Y1-ST", "name": "Storytime theater", "class": null, "kind": "program", "color": "#f6dc8c", "node": "y1-story", "desc": "Room with glass doors, a puppet theater and built-in benches.", "poly": [[0.3, 24.1], [7.6, 25.5], [11.5, 26.6], [10.6, 34.2], [-2.2, 31.9]]},
+        {"id": "Y1-678", "name": "6-7-8 Lounge", "class": null, "kind": "reading", "color": "#86a04a", "node": "y1-678", "desc": "Space for middle school students, between the children's area and the lobby.", "poly": [[25.2, 9.8], [26.3, 7.2], [30.6, 6.4], [30.9, 7.9], [40.5, 6.0], [43.2, 17.8], [34.6, 19.8], [28.7, 21.4]]},
+        {"id": "Y1-PP", "name": "Passport services", "class": null, "kind": "service", "color": "#3f6fa8", "node": "y1-pass", "poly": [[56.8, 17.2], [60.9, 17.2], [60.9, 21.6], [56.8, 21.6]]},
+        {"id": "Y1-WC", "name": "Restrooms (lower level)", "class": null, "kind": "restroom", "color": "#c8ccd4", "node": "y1-wc", "poly": [[61.1, 17.2], [70.5, 17.2], [70.5, 24.5], [61.1, 24.5]]},
+        {"id": "Y1-BC", "name": "Friends Book Corner", "class": null, "kind": "shop", "color": "#3f6fa8", "node": "y1-book", "desc": "Friends of the Library bookstore, with indoor and outdoor sales on the paseo.", "poly": [[84.5, 6.8], [94.5, 9.8], [93.8, 16.1], [81.5, 14.5]]},
+        {"id": "Y1-CR", "name": "Community Room", "class": null, "kind": "meeting", "color": "#3f6fa8", "node": "y1-comm", "desc": "Divisible into two rooms, with a raised platform and a prep kitchen. Seats up to 185 theater style.", "poly": [[74.2, 18.9], [95.0, 18.9], [92.5, 35.9], [74.2, 35.9]]},
+        {"id": "Y1-CT", "name": "Community Room terrace", "class": null, "kind": "outdoor", "color": "#9dbbe3", "node": "y1-terrace", "poly": [[74.4, 35.9], [93.8, 35.9], [93.8, 42.6], [74.4, 42.6]]},
+        {"id": "Y1-X1", "name": "Unlabelled area", "class": null, "kind": "staff", "color": "#d9d9d9", "node": "y1-hall-w", "desc": "The library's public map shows this area in grey without a name, so it is treated as not open to visitors.", "noLabel": true, "poly": [[32.5, 24.8], [74.2, 24.8], [74.2, 37.7], [33.1, 37.7]]},
+        {"id": "Y1-X2", "name": "Unlabelled rooms", "class": null, "kind": "staff", "color": "#d9d9d9", "node": "y1-hall-c", "desc": "The library's public map shows this area in grey without a name, so it is treated as not open to visitors.", "noLabel": true, "poly": [[68.9, 5.2], [83.9, 7.3], [81.5, 12.5], [68.1, 11.3]]}
+      ],
+      "nodes": [
+        {"id": "y1-ent", "x": 59.9, "y": 2.7, "kind": "entrance"},
+        {"id": "y1-lobby", "x": 55.9, "y": 10.6, "kind": "zone"},
+        {"id": "y1-stair", "x": 49.3, "y": 13.6, "kind": "stairs"},
+        {"id": "y1-elev", "x": 41.5, "y": 9.2, "kind": "elevator"},
+        {"id": "y1-hall-w", "x": 36.9, "y": 21.0, "kind": "corridor"},
+        {"id": "y1-678", "x": 34.8, "y": 12.6, "kind": "zone"},
+        {"id": "y1-child", "x": 19.3, "y": 19.0, "kind": "zone"},
+        {"id": "y1-nook", "x": 13.1, "y": 11.1, "kind": "zone"},
+        {"id": "y1-play", "x": 9.8, "y": 6.8, "kind": "zone"},
+        {"id": "y1-story", "x": 5.7, "y": 28.9, "kind": "zone"},
+        {"id": "y1-wstair", "x": 4.3, "y": 22.5, "kind": "stairs"},
+        {"id": "y1-hall-e", "x": 66.0, "y": 16.7, "kind": "corridor"},
+        {"id": "y1-pass", "x": 58.8, "y": 19.0, "kind": "zone"},
+        {"id": "y1-wc", "x": 66.0, "y": 20.3, "kind": "zone"},
+        {"id": "y1-hall-c", "x": 77.5, "y": 17.0, "kind": "corridor"},
+        {"id": "y1-book", "x": 87.3, "y": 12.2, "kind": "zone"},
+        {"id": "y1-comm", "x": 84.3, "y": 26.9, "kind": "zone"},
+        {"id": "y1-terrace", "x": 84.3, "y": 39.1, "kind": "zone"}
+      ],
+      "edges": [["y1-ent", "y1-lobby"], ["y1-lobby", "y1-stair"], ["y1-lobby", "y1-elev"], ["y1-lobby", "y1-hall-w"], ["y1-hall-w", "y1-678"], ["y1-hall-w", "y1-child"], ["y1-child", "y1-nook"], ["y1-nook", "y1-play"], ["y1-child", "y1-story"], ["y1-child", "y1-wstair"], ["y1-lobby", "y1-hall-e"], ["y1-hall-e", "y1-pass"], ["y1-hall-e", "y1-wc"], ["y1-hall-e", "y1-hall-c"], ["y1-hall-c", "y1-book"], ["y1-hall-c", "y1-comm"], ["y1-comm", "y1-terrace"]]
+    },
+    "2": {
+      "outline": [[3.6, 10.8], [27.6, 10.3], [62.7, 0.0], [74.0, 2.8], [73.2, 5.2], [97.2, 11.7], [95.0, 20.9], [92.7, 20.9], [92.8, 37.4], [42.5, 37.5], [28.1, 41.6], [2.6, 34.8], [4.6, 26.0], [0.0, 24.7]],
+      "zones": [
+        {"id": "Y2-AD", "name": "Adult services: great reading room", "class": null, "kind": "collection", "color": "#7fb2ac", "node": "y2-adult", "desc": "Adult fiction and nonfiction, reading tables and a fireplace, lit by skylights. The public map doesn't show where each Dewey range is shelved.", "poly": [[2.8, 10.3], [29.6, 10.0], [29.6, 17.5], [30.6, 17.5], [34.3, 39.0], [27.5, 41.2], [0.3, 34.1], [0.5, 29.0], [9.2, 29.0], [9.2, 20.4], [1.9, 19.7]]},
+        {"id": "Y2-STAIR", "name": "Grand staircase (upper landing)", "class": null, "kind": "stairs", "color": "#aab4c8", "node": "y2-stair", "desc": "Floating landing with views over the paseo and the arts center.", "poly": [[43.7, 3.9], [53.0, 3.9], [53.0, 13.3], [43.7, 13.3]]},
+        {"id": "Y2-ELEV", "name": "Elevator (upper level)", "class": null, "kind": "elevator", "color": "#aab4c8", "node": "y2-elev", "desc": "Position estimated: the library's public map doesn't show it.", "poly": [[39.6, 7.7], [43.0, 7.7], [43.0, 11.2], [39.6, 11.2]]},
+        {"id": "Y2-WS", "name": "West stairs (upper level)", "class": null, "kind": "stairs", "color": "#aab4c8", "node": "y2-wstair", "desc": "Position estimated: the library's public map doesn't show it.", "poly": [[2.8, 20.4], [9.2, 20.4], [9.2, 29.0], [2.8, 29.0]]},
+        {"id": "Y2-MR", "name": "Meeting room", "class": null, "kind": "meeting", "color": "#b6d7d6", "node": "y2-meet", "poly": [[29.6, 7.1], [35.0, 7.1], [35.0, 17.5], [29.6, 17.5]]},
+        {"id": "Y2-GS", "name": "Group study rooms", "class": null, "kind": "reading", "color": "#b6d7d6", "node": "y2-study", "desc": "Small group study rooms on the way to the great reading room.", "poly": [[31.7, 21.7], [38.8, 21.7], [38.8, 32.8], [33.6, 32.8]]},
+        {"id": "Y2-WC", "name": "Restrooms (upper level)", "class": null, "kind": "restroom", "color": "#c8ccd4", "node": "y2-wc", "poly": [[38.9, 23.3], [48.9, 23.3], [48.9, 31.2], [38.9, 31.2]]},
+        {"id": "Y2-DIY", "name": "DIY Studio", "class": null, "kind": "program", "color": "#3f6fa8", "node": "y2-diy", "desc": "Overlooks the lobby. STEAM activities, book clubs, classes and the Library of Things.", "poly": [[51.7, 19.9], [60.6, 18.1], [62.4, 25.0], [53.3, 27.2]]},
+        {"id": "Y2-TL", "name": "Teen Loft", "class": null, "kind": "reading", "color": "#df9046", "node": "y2-teen", "desc": "Built-in banquettes and window seats for gaming, study and hanging out.", "poly": [[70.4, 4.4], [79.6, 6.7], [77.3, 19.2], [67.4, 17.2], [68.6, 12.8]]},
+        {"id": "Y2-TB", "name": "Teen Loft booths", "class": null, "kind": "reading", "color": "#efbd86", "node": "y2-booth", "poly": [[79.6, 6.7], [83.0, 7.6], [81.3, 19.2], [77.3, 19.2]]},
+        {"id": "Y2-X1", "name": "Unlabelled area", "class": null, "kind": "staff", "color": "#d9d9d9", "node": "y2-hall-e", "desc": "The library's public map shows this area in grey without a name, so it is treated as not open to visitors.", "noLabel": true, "poly": [[49.3, 28.0], [92.5, 22.9], [92.5, 37.6], [40.9, 37.6], [40.9, 31.2], [49.3, 31.2]]},
+        {"id": "Y2-X2", "name": "Unlabelled room", "class": null, "kind": "staff", "color": "#d9d9d9", "node": "y2-booth", "desc": "The library's public map shows this area in grey without a name, so it is treated as not open to visitors.", "noLabel": true, "poly": [[83.0, 7.6], [93.0, 10.0], [93.0, 18.9], [81.3, 19.2]]}
+      ],
+      "nodes": [
+        {"id": "y2-stair", "x": 49.8, "y": 10.9, "kind": "stairs"},
+        {"id": "y2-elev", "x": 41.3, "y": 9.8, "kind": "elevator"},
+        {"id": "y2-land", "x": 54.5, "y": 15.3, "kind": "corridor"},
+        {"id": "y2-hall-w", "x": 36.9, "y": 16.3, "kind": "corridor"},
+        {"id": "y2-meet", "x": 32.3, "y": 14.9, "kind": "zone"},
+        {"id": "y2-adult", "x": 16.5, "y": 24.3, "kind": "zone"},
+        {"id": "y2-wstair", "x": 6.0, "y": 24.6, "kind": "stairs"},
+        {"id": "y2-study", "x": 35.8, "y": 26.5, "kind": "zone"},
+        {"id": "y2-wc", "x": 43.7, "y": 21.7, "kind": "zone"},
+        {"id": "y2-diy", "x": 56.8, "y": 21.1, "kind": "zone"},
+        {"id": "y2-hall-e", "x": 66.0, "y": 14.9, "kind": "corridor"},
+        {"id": "y2-teen", "x": 72.8, "y": 12.7, "kind": "zone"},
+        {"id": "y2-booth", "x": 79.2, "y": 13.4, "kind": "zone"}
+      ],
+      "edges": [["y2-stair", "y2-land"], ["y2-elev", "y2-hall-w"], ["y2-land", "y2-hall-w"], ["y2-hall-w", "y2-meet"], ["y2-hall-w", "y2-adult"], ["y2-adult", "y2-wstair"], ["y2-hall-w", "y2-study"], ["y2-hall-w", "y2-wc"], ["y2-land", "y2-diy"], ["y2-land", "y2-hall-e"], ["y2-hall-e", "y2-teen"], ["y2-teen", "y2-booth"]]
+    }
+  },
+  "connectors": [
+    {"kind": "stairs", "core": "central", "accessible": false, "links": [{"from": ["1", "y1-stair"], "to": ["2", "y2-stair"], "storeys": 1}]},
+    {"kind": "stairs", "core": "west", "accessible": false, "links": [{"from": ["1", "y1-wstair"], "to": ["2", "y2-wstair"], "storeys": 1}]},
+    {"kind": "elevator", "core": "elevator", "accessible": true, "links": [{"from": ["1", "y1-elev"], "to": ["2", "y2-elev"], "storeys": 1}]}
+  ],
+  "classZones": {"0": "Y2-AD", "1": "Y2-AD", "2": "Y2-AD", "3": "Y2-AD", "4": "Y2-AD", "5": "Y2-AD", "6": "Y2-AD", "7": "Y2-AD", "8": "Y2-AD", "9": "Y2-AD"},
+  "keywords": [
+    {"t": "programming", "a": ["coding", "computers", "computer science", "software", "python", "javascript", "程式", "程式設計", "電腦"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 0s on the shelves."},
+    {"t": "encyclopedias", "a": ["almanac", "reference books", "百科全書"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 0s on the shelves."},
+    {"t": "psychology", "a": ["self help", "self-help", "philosophy", "心理學", "哲學"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 100s on the shelves."},
+    {"t": "religion", "a": ["bible", "buddhism", "mythology", "宗教", "聖經"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 200s on the shelves."},
+    {"t": "social sciences", "a": ["economics", "law", "politics", "education", "finance", "investing", "經濟", "法律", "政治", "教育", "投資"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 300s on the shelves."},
+    {"t": "languages", "a": ["learn spanish", "english grammar", "dictionaries", "esl", "語言", "字典"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 400s on the shelves."},
+    {"t": "science", "a": ["math", "mathematics", "physics", "chemistry", "biology", "astronomy", "數學", "物理", "化學", "生物", "天文"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 500s on the shelves."},
+    {"t": "health", "a": ["medicine", "nutrition", "fitness", "醫學", "健康"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 600s on the shelves."},
+    {"t": "cooking", "a": ["cookbooks", "recipes", "baking", "食譜", "烹飪", "料理"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 600s on the shelves."},
+    {"t": "gardening", "a": ["plants", "園藝"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 600s on the shelves."},
+    {"t": "business", "a": ["marketing", "management", "careers", "企業管理", "行銷"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 600s on the shelves."},
+    {"t": "engineering", "a": ["electronics", "arduino", "cars", "工程", "電子"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 600s on the shelves."},
+    {"t": "art", "a": ["painting", "drawing", "photography", "藝術", "繪畫", "攝影"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 700s on the shelves."},
+    {"t": "music", "a": ["guitar", "piano", "音樂", "吉他", "鋼琴"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 700s on the shelves."},
+    {"t": "sports", "a": ["hiking", "yoga", "運動", "瑜珈"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 700s on the shelves."},
+    {"t": "poetry", "a": ["poems", "plays", "shakespeare", "詩", "詩集"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 800s on the shelves."},
+    {"t": "us history", "a": ["american history", "history", "world history", "美國歷史", "歷史"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 900s on the shelves."},
+    {"t": "california history", "a": ["local history", "orange county", "yorba linda history", "nixon", "加州歷史"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 900s on the shelves."},
+    {"t": "travel", "a": ["travel guides", "旅遊", "旅行"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 900s on the shelves."},
+    {"t": "biography", "a": ["memoir", "memoirs", "傳記", "回憶錄"], "zone": "Y2-AD"},
+    {"t": "novels", "a": ["fiction", "mystery", "romance", "science fiction", "thrillers", "小說"], "zone": "Y2-AD"},
+    {"t": "large print", "a": ["large type", "大字書"], "zone": "Y2-AD"},
+    {"t": "fireplace", "a": ["fire place", "壁爐", "great reading room", "reading room"], "zone": "Y2-AD"},
+    {"t": "adult books", "a": ["adults", "adult services", "成人", "成人書區"], "zone": "Y2-AD"},
+    {"t": "children's books", "a": ["kids books", "kids", "children", "picture books", "juvenile", "easy readers", "兒童", "童書", "繪本", "兒童區"], "zone": "Y1-CH"},
+    {"t": "storytime", "a": ["story time", "puppet theater", "puppets", "說故事", "故事時間"], "zone": "Y1-ST"},
+    {"t": "family reading nook", "a": ["reading nook", "family reading", "親子閱讀"], "zone": "Y1-NK"},
+    {"t": "play area", "a": ["outdoor play", "playground", "children's terrace", "遊戲區"], "zone": "Y1-PL"},
+    {"t": "6-7-8 lounge", "a": ["678 lounge", "678", "middle school", "tweens", "國中"], "zone": "Y1-678"},
+    {"t": "teen loft", "a": ["teens", "teen", "young adult", "ya books", "video games", "gaming", "青少年", "電玩"], "zone": "Y2-TL"},
+    {"t": "checkout", "a": ["check out", "borrow", "return books", "holds", "hold pickup", "circulation desk", "library card", "借書", "還書", "預約取書", "借閱證"], "zone": "Y1-LB"},
+    {"t": "entrance", "a": ["lobby", "exit", "front door", "入口", "出口", "大廳"], "zone": "Y1-LB"},
+    {"t": "passports", "a": ["passport", "passport services", "護照"], "zone": "Y1-PP"},
+    {"t": "book corner", "a": ["friends of the library", "book sale", "used books", "bookstore", "二手書", "書店"], "zone": "Y1-BC"},
+    {"t": "community room", "a": ["events", "event room", "lectures", "活動室"], "zone": "Y1-CR"},
+    {"t": "terrace", "a": ["community room terrace", "patio", "露台"], "zone": "Y1-CT"},
+    {"t": "diy studio", "a": ["diy", "makerspace", "library of things", "steam", "crafts", "book club", "classes", "手作", "創客"], "zone": "Y2-DIY"},
+    {"t": "group study", "a": ["study room", "study rooms", "group study rooms", "討論室", "自習室"], "zone": "Y2-GS"},
+    {"t": "meeting room", "a": ["meeting space", "meeting rooms", "會議室"], "zone": "Y2-MR"},
+    {"t": "latest news", "a": ["news", "newspaper", "newspapers", "magazines", "新聞", "報紙", "雜誌"], "intent": "newspapers"},
+    {"t": "self study", "a": ["study", "quiet place", "reading area", "place to read", "自習", "看書", "讀書"], "intent": "nearest_reading"},
+    {"t": "restroom", "a": ["toilet", "bathroom", "washroom", "廁所", "洗手間"], "intent": "nearest_restroom"},
+    {"t": "elevator", "a": ["lift", "電梯"], "intent": "nearest_elevator"}
+  ],
+  "intents": {
+    "newspapers": {
+      "candidates": [
+        "Y2-AD"
+      ],
+      "lead": "The public map doesn't show a separate periodicals area, so this goes to the adult reading room."
+    },
+    "nearest_reading": {
+      "candidates": [
+        "Y2-GS",
+        "Y2-AD",
+        "Y1-678"
+      ],
+      "lead": "Taking you to the nearest place to study."
+    },
+    "nearest_restroom": {
+      "candidates": [
+        "Y1-WC",
+        "Y2-WC"
+      ],
+      "lead": "Taking you to the nearest restroom."
+    },
+    "nearest_elevator": {
+      "candidates": [
+        "Y1-ELEV",
+        "Y2-ELEV"
+      ],
+      "lead": "Taking you to the nearest elevator."
+    }
+  },
+  "demoWalk": [["1", "y1-ent"], ["1", "y1-lobby"], ["1", "y1-hall-w"], ["1", "y1-child"], ["1", "y1-story"], ["1", "y1-child"], ["1", "y1-hall-w"], ["1", "y1-lobby"], ["1", "y1-stair"], ["2", "y2-stair"], ["2", "y2-land"], ["2", "y2-hall-w"], ["2", "y2-adult"], ["2", "y2-hall-w"], ["2", "y2-land"], ["2", "y2-hall-e"], ["2", "y2-teen"], ["2", "y2-hall-e"], ["2", "y2-land"], ["2", "y2-hall-w"], ["2", "y2-elev"], ["1", "y1-elev"], ["1", "y1-lobby"], ["1", "y1-hall-e"], ["1", "y1-hall-c"], ["1", "y1-comm"], ["1", "y1-hall-c"], ["1", "y1-hall-e"], ["1", "y1-lobby"]]
+}

@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Library Nav: how it works</title>
+<meta name="description" content="How the Library Nav indoor navigation project is put together: ESP8266 and BMP390 pressure sensors, phone GPS, MQTT on HiveMQ Cloud, a Python position engine, Supabase and a Three.js web app." />
+<meta name="theme-color" content="#fbf8f1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --paper: #efe9dd; --card: #fbf8f1; --sunk: #e4dccb;
+  --ink: #1d1b17; --ink-2: #4b463d; --ink-3: #8a8375;
+  --rule: #d8cfbd; --rule-2: #b9ae98;
+  --signal: #e0561b; --here: #1e6a47; --friend: #2a5b9a;
+  --f-sign: "Barlow Semi Condensed", "Barlow", "Arial Narrow", sans-serif;
+  --f-ui: "Barlow", system-ui, sans-serif;
+  --f-read: "Newsreader", Georgia, serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; scroll-padding-top: 70px; }
+body {
+  font: 400 18px/1.6 var(--f-read); color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--friend); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { color: var(--signal); }
+b, strong { font-weight: 600; }
+code { font: 500 0.8em var(--f-mono); background: var(--sunk); padding: 1px 5px; white-space: nowrap; }
+
+/* top bar */
+.bar {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--card); border-bottom: 1px solid var(--ink);
+}
+.bar .in {
+  max-width: 1160px; margin: 0 auto; padding: 0 20px; height: 54px;
+  display: flex; align-items: center; gap: 16px;
+}
+.brand { display: flex; align-items: center; gap: 9px; color: var(--ink); text-decoration: none; }
+.mark { width: 26px; height: 26px; display: grid; place-items: center; background: var(--ink); color: var(--card); }
+.mark svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
+.wordmark { font: italic 500 19px/1 var(--f-read); }
+.wordmark span { font: 700 13px/1 var(--f-sign); letter-spacing: .16em; text-transform: uppercase; margin-left: 4px; position: relative; top: -2px; }
+.bar nav { margin-left: auto; display: flex; gap: 6px; }
+.bar nav a {
+  font: 600 14px/1 var(--f-sign); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink); text-decoration: none; padding: 9px 11px; border: 1px solid var(--rule-2);
+}
+.bar nav a.go { background: var(--ink); color: var(--card); border-color: var(--ink); }
+.bar nav a:hover { border-color: var(--ink); color: var(--ink); }
+.bar nav a.go:hover { background: var(--signal); border-color: var(--signal); color: #fff; }
+
+/* page frame */
+.page {
+  max-width: 1160px; margin: 0 auto; padding: 0 20px 80px;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 56px;
+}
+@media (min-width: 1000px) {
+  .page { grid-template-columns: 220px minmax(0, 1fr); }
+}
+
+/* masthead */
+.mast { grid-column: 1 / -1; padding: 56px 0 40px; border-bottom: 1px solid var(--ink); }
+.kicker { font: 600 12px/1 var(--f-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--signal); }
+.mast h1 { font: 500 clamp(34px, 5.4vw, 60px)/1.06 var(--f-read); letter-spacing: -.015em; margin: 16px 0 18px; max-width: 17ch; }
+.mast .dek { font-size: 20px; line-height: 1.55; color: var(--ink-2); max-width: 60ch; }
+
+.spec {
+  margin-top: 34px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  border-top: 1px solid var(--ink); border-left: 1px solid var(--rule);
+}
+.spec div { padding: 12px 14px 14px; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); background: var(--card); }
+.spec dt { font: 500 11px/1 var(--f-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+.spec dd { font: 600 26px/1.1 var(--f-sign); margin-top: 8px; }
+.spec dd small { font: 500 14px var(--f-ui); color: var(--ink-2); margin-left: 3px; }
+
+/* contents */
+.toc { display: none; }
+@media (min-width: 1000px) {
+  .toc { display: block; }
+  .toc ol { position: sticky; top: 86px; list-style: none; margin-top: 40px; border-top: 1px solid var(--ink); }
+  .toc li { border-bottom: 1px solid var(--rule); }
+  .toc a {
+    display: flex; gap: 10px; padding: 9px 2px;
+    font: 500 15px/1.25 var(--f-ui); color: var(--ink-2); text-decoration: none;
+  }
+  .toc a span { font: 500 12px/1.6 var(--f-mono); color: var(--ink-3); min-width: 18px; }
+  .toc a:hover, .toc a.on { color: var(--ink); }
+  .toc a.on span { color: var(--signal); }
+}
+
+/* sections */
+main { min-width: 0; }
+section { padding: 44px 0 8px; max-width: 760px; }
+section + section { border-top: 1px solid var(--rule); margin-top: 36px; }
+.num { font: 600 13px/1 var(--f-mono); color: var(--signal); letter-spacing: .08em; }
+h2 { font: 500 34px/1.15 var(--f-read); letter-spacing: -.01em; margin: 10px 0 16px; }
+h3 {
+  font: 700 15px/1.2 var(--f-sign); letter-spacing: .08em; text-transform: uppercase;
+  margin: 30px 0 10px; padding-top: 12px; border-top: 2px solid var(--ink); display: inline-block;
+}
+p { margin: 0 0 14px; }
+p.lede { font-size: 20px; color: var(--ink-2); }
+
+ul.plain { list-style: none; margin: 4px 0 16px; }
+ul.plain li { position: relative; padding-left: 20px; margin: 7px 0; }
+ul.plain li::before { content: ""; position: absolute; left: 2px; top: .68em; width: 7px; height: 7px; background: var(--ink); }
+
+/* two-up blocks for the sensor comparison */
+.pair { display: grid; grid-template-columns: 1fr; gap: 0; border: 1px solid var(--ink); margin: 20px 0; background: var(--card); }
+@media (min-width: 640px) { .pair { grid-template-columns: 1fr 1fr 1fr; } }
+.pair > div { padding: 16px 18px; border-bottom: 1px solid var(--rule); }
+@media (min-width: 640px) { .pair > div { border-bottom: 0; border-right: 1px solid var(--rule); } .pair > div:last-child { border-right: 0; } }
+.pair h4 { font: 700 13px/1 var(--f-sign); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 8px; }
+.pair p { font-size: 16px; line-height: 1.5; margin: 0; color: var(--ink-2); }
+.pair .fused { background: var(--ink); color: var(--card); }
+.pair .fused h4 { color: var(--signal); }
+.pair .fused p { color: #d8d0bf; }
+
+/* diagram */
+figure { margin: 22px 0 8px; }
+.scroll { overflow-x: auto; border: 1px solid var(--ink); background: var(--card); }
+.scroll svg { display: block; min-width: 700px; width: 100%; height: auto; }
+figcaption { font: 400 13.5px/1.5 var(--f-ui); color: var(--ink-3); margin-top: 8px; }
+
+/* tables */
+.tbl { overflow-x: auto; margin: 16px 0 20px; border-top: 2px solid var(--ink); }
+table { border-collapse: collapse; width: 100%; font: 400 14.5px/1.4 var(--f-ui); }
+th { text-align: left; font: 600 12px/1.2 var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); padding: 10px 12px 9px 0; border-bottom: 1px solid var(--ink); white-space: nowrap; }
+td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+td:first-child { white-space: nowrap; }
+td code { background: none; padding: 0; font-size: 13px; }
+td.y { color: var(--here); font-weight: 600; }
+td.n { color: var(--ink-3); }
+
+/* code */
+pre {
+  font: 400 13.5px/1.6 var(--f-mono); color: var(--ink);
+  background: var(--card); border: 1px solid var(--rule-2); border-left: 4px solid var(--ink);
+  padding: 12px 16px; overflow-x: auto; margin: 6px 0 18px;
+}
+pre .c { color: var(--ink-3); }
+pre .s { color: var(--friend); }
+.label { font: 600 12px/1.3 var(--f-mono); color: var(--ink-2); margin-top: 18px; }
+
+/* key/value lists */
+dl.kv { border-top: 2px solid var(--ink); margin: 14px 0 20px; }
+dl.kv div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 16px; line-height: 1.45; }
+dl.kv dt { font: 600 14px/1.45 var(--f-sign); letter-spacing: .04em; text-transform: uppercase; }
+dl.kv dd { color: var(--ink-2); }
+@media (max-width: 520px) { dl.kv div { grid-template-columns: 1fr; gap: 2px; } }
+
+ol.steps { list-style: none; counter-reset: s; margin: 16px 0; }
+ol.steps li { counter-increment: s; position: relative; padding: 0 0 16px 46px; }
+ol.steps li::before {
+  content: counter(s); position: absolute; left: 0; top: 2px;
+  width: 30px; height: 30px; display: grid; place-items: center;
+  font: 700 15px/1 var(--f-sign); background: var(--ink); color: var(--card);
+}
+ol.steps li b { display: block; font: 700 16px/1.3 var(--f-sign); letter-spacing: .04em; text-transform: uppercase; margin-bottom: 2px; }
+
+.aside {
+  font: 400 15.5px/1.55 var(--f-ui); color: var(--ink-2);
+  border: 1px dashed var(--rule-2); padding: 12px 14px; margin: 18px 0;
+}
+.aside b { color: var(--ink); }
+
+footer { border-top: 1px solid var(--ink); background: var(--card); }
+footer .in { max-width: 1160px; margin: 0 auto; padding: 24px 20px 30px; font: 400 14px/1.6 var(--f-ui); color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 8px 24px; }
+footer a { color: var(--ink); }
+
+@media (max-width: 560px) {
+  body { font-size: 17px; }
+  .bar nav a:not(.go) { display: none; }
+  h2 { font-size: 29px; }
+  .mast { padding-top: 40px; }
+}
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="in">
+    <a class="brand" href="./">
+      <span class="mark"><svg viewBox="0 0 24 24"><path d="M12 3 3 7.5l9 4.5 9-4.5z" /><path d="m3 12 9 4.5 9-4.5" /><path d="m3 16.5 9 4.5 9-4.5" /></svg></span>
+      <span class="wordmark">Library<span>Nav</span></span>
+    </a>
+    <nav>
+      <a href="https://github.com/Ted369369/Indoor-3D-Navigation-Platform">Source</a>
+      <a class="go" href="./">Open the app</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page">
+
+  <div class="mast">
+    <div class="kicker">Project notes</div>
+    <h1>Finding your floor inside a library</h1>
+    <p class="dek">Library Nav shows where you are inside a library on a 3D map and walks you to a shelf, a desk or a friend. Your phone's GPS gives the position on the floor. A small pressure sensor you carry works out which floor you are on. Two libraries are mapped so far: the Taipei Public Library Main Library and the Yorba Linda Public Library in California.</p>
+    <dl class="spec">
+      <div><dt>Libraries</dt><dd>2<small>Taipei, Yorba Linda</small></dd></div>
+      <div><dt>Floors</dt><dd>5 + 2<small>3.8 m / about 5.5 m apart</small></dd></div>
+      <div><dt>Sensors in use</dt><dd>5<small>per library</small></dd></div>
+      <div><dt>Position updates</dt><dd>2<small>per second</small></dd></div>
+      <div><dt>Transport</dt><dd>MQTT<small>over TLS</small></dd></div>
+    </dl>
+  </div>
+
+  <aside class="toc" aria-label="Contents">
+    <ol id="toc">
+      <li><a href="#idea"><span>1</span>Two sensors</a></li>
+      <li><a href="#architecture"><span>2</span>How it fits together</a></li>
+      <li><a href="#mqtt"><span>3</span>MQTT messages</a></li>
+      <li><a href="#nodes"><span>4</span>Who sends what</a></li>
+      <li><a href="#security"><span>5</span>Security</a></li>
+      <li><a href="#engine"><span>6</span>Position engine</a></li>
+      <li><a href="#firmware"><span>7</span>Sensor firmware</a></li>
+      <li><a href="#services"><span>8</span>HiveMQ and Supabase</a></li>
+      <li><a href="#web"><span>9</span>The web app</a></li>
+    </ol>
+  </aside>
+
+  <main>
+
+    <section id="idea">
+      <div class="num">01</div>
+      <h2>Why two sensors</h2>
+      <p class="lede">Phone GPS is fine for "which side of the building", but it has no useful idea of height. Indoors the vertical error is easily bigger than one floor.</p>
+      <p>Air pressure drops by roughly 12&nbsp;Pa per metre, so a BMP390 can see the 3.8&nbsp;m between floors clearly. On its own, though, the reading drifts with the weather and says nothing about where you are on the floor. So the two are combined.</p>
+      <div class="pair">
+        <div><h4>GPS (phone)</h4><p>Latitude and longitude, turned into metres on the floor plan and smoothed.</p></div>
+        <div><h4>Pressure (BMP390)</h4><p>Compared with a second sensor fixed on 1F, which cancels out weather changes.</p></div>
+        <div class="fused"><h4>Combined</h4><p>One position: x and y in metres plus a floor number, kept on walkable paths.</p></div>
+      </div>
+    </section>
+
+    <section id="architecture">
+      <div class="num">02</div>
+      <h2>How it fits together</h2>
+      <p>Nothing talks to anything directly. Sensors, phones and the position engine all connect to one MQTT broker (HiveMQ Cloud), which made it easy to test each piece on its own, for example running the engine against a simulator before the hardware worked.</p>
+      <figure>
+        <div class="scroll">
+          <svg viewBox="0 0 900 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sensors and phones send to HiveMQ Cloud; the Python engine reads raw data and publishes positions back; web clients render them; Supabase stores accounts and friends.">
+            <defs>
+              <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 1 9 5 0 9" fill="none" stroke="#1d1b17" stroke-width="1.6"/></marker>
+              <marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 1 9 5 0 9" fill="none" stroke="#e0561b" stroke-width="1.6"/></marker>
+              <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="#d8cfbd" stroke-width="2"/></pattern>
+            </defs>
+            <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#8a8375" letter-spacing="1.5">
+              <text x="90" y="30" text-anchor="middle">SENSING</text>
+              <text x="333" y="30" text-anchor="middle">TRANSPORT</text>
+              <text x="561" y="30" text-anchor="middle">PROCESSING</text>
+              <text x="800" y="30" text-anchor="middle">DISPLAY</text>
+            </g>
+            <g stroke="#d8cfbd" stroke-dasharray="2 4"><line x1="212" y1="44" x2="212" y2="386"/><line x1="447" y1="44" x2="447" y2="386"/><line x1="676" y1="44" x2="676" y2="386"/></g>
+
+            <g font-family="Barlow, sans-serif" fill="#1d1b17">
+              <rect x="14" y="56" width="152" height="58" fill="#fbf8f1" stroke="#1d1b17"/>
+              <text x="90" y="81" font-size="15" font-weight="600" text-anchor="middle">ESP8266 + BMP390</text>
+              <text x="90" y="100" font-size="12.5" fill="#4b463d" text-anchor="middle">carried, up to 5</text>
+
+              <rect x="14" y="128" width="152" height="58" fill="#fbf8f1" stroke="#1d1b17"/>
+              <text x="90" y="153" font-size="15" font-weight="600" text-anchor="middle">Reference sensor</text>
+              <text x="90" y="172" font-size="12.5" fill="#4b463d" text-anchor="middle">fixed on 1F</text>
+
+              <rect x="14" y="290" width="152" height="58" fill="#fbf8f1" stroke="#1d1b17"/>
+              <text x="90" y="315" font-size="15" font-weight="600" text-anchor="middle">Phone</text>
+              <text x="90" y="334" font-size="12.5" fill="#4b463d" text-anchor="middle">GPS, in the browser</text>
+
+              <rect x="258" y="150" width="150" height="112" fill="#1d1b17"/>
+              <text x="333" y="195" font-size="16" font-weight="600" fill="#fbf8f1" text-anchor="middle">HiveMQ Cloud</text>
+              <text x="333" y="214" font-size="12.5" fill="#d8d0bf" text-anchor="middle">MQTT broker</text>
+              <text x="333" y="238" font-family="IBM Plex Mono, monospace" font-size="11" fill="#e0561b" text-anchor="middle">8883 TLS / 8884 WSS</text>
+
+              <rect x="486" y="120" width="150" height="116" fill="#fbf8f1" stroke="#e0561b" stroke-width="2"/>
+              <text x="561" y="150" font-size="16" font-weight="600" text-anchor="middle">Python engine</text>
+              <text x="561" y="172" font-size="12.5" fill="#4b463d" text-anchor="middle">GPS filter</text>
+              <text x="561" y="190" font-size="12.5" fill="#4b463d" text-anchor="middle">floor from pressure</text>
+              <text x="561" y="208" font-size="12.5" fill="#4b463d" text-anchor="middle">snap to paths</text>
+              <text x="561" y="226" font-size="12.5" fill="#4b463d" text-anchor="middle">slots, directory</text>
+
+              <rect x="486" y="296" width="150" height="66" fill="url(#hatch)" stroke="#1d1b17"/>
+              <rect x="506" y="310" width="110" height="38" fill="#fbf8f1"/>
+              <text x="561" y="327" font-size="15" font-weight="600" text-anchor="middle">Supabase</text>
+              <text x="561" y="343" font-size="11.5" fill="#4b463d" text-anchor="middle">accounts, friends</text>
+
+              <rect x="720" y="150" width="160" height="112" fill="#fbf8f1" stroke="#1d1b17"/>
+              <text x="800" y="190" font-size="16" font-weight="600" text-anchor="middle">Web app</text>
+              <text x="800" y="210" font-size="12.5" fill="#4b463d" text-anchor="middle">Three.js 3D map</text>
+              <text x="800" y="228" font-size="12.5" fill="#4b463d" text-anchor="middle">you and friends</text>
+            </g>
+
+            <g stroke="#1d1b17" stroke-width="1.3" fill="none">
+              <path d="M166 85 H212 V182 H256" marker-end="url(#a)"/>
+              <path d="M166 157 H200 V202 H256" marker-end="url(#a)"/>
+              <path d="M166 319 H212 V240 H256" marker-start="url(#a)" marker-end="url(#a)"/>
+              <path d="M561 236 V294" marker-start="url(#a)" marker-end="url(#a)" stroke-dasharray="4 3"/>
+              <path d="M720 244 H680 V330 H638" marker-end="url(#a)" stroke-dasharray="4 3"/>
+            </g>
+            <g stroke="#e0561b" stroke-width="2" fill="none">
+              <path d="M408 170 H484" marker-end="url(#ao)"/>
+              <path d="M484 204 H408" marker-end="url(#ao)"/>
+              <path d="M372 150 V100 H800 V148" marker-end="url(#ao)"/>
+            </g>
+            <g font-family="IBM Plex Mono, monospace" font-size="10.5" fill="#4b463d">
+              <text x="220" y="76">pressure, 2/s</text>
+              <text x="220" y="336">GPS up, position down</text>
+              <text x="416" y="162">raw</text>
+              <text x="416" y="198">pos</text>
+              <text x="569" y="276">pairings</text>
+              <text x="686" y="322">login, friends</text>
+              <text x="590" y="92">positions to every screen</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Orange lines carry the position data. Dashed lines are optional: without Supabase the app still works, just without friends.</figcaption>
+      </figure>
+    </section>
+
+    <section id="mqtt">
+      <div class="num">03</div>
+      <h2>MQTT messages</h2>
+      <p>Every topic starts with <code>libnav/</code> and then names the kind of sender, its id and what the message is, for example <code>libnav/dev/NAV-001/telemetry</code> or <code>libnav/user/&lt;uid&gt;/pos</code>. Payloads are small JSON objects, or just <code>online</code>/<code>offline</code>.</p>
+      <p>One rule decides the flags. If a message describes the <b>current state</b> (a position, who is online, how many slots are used), it is <b>retained</b>, so a phone that reconnects sees it straight away. If it is an <b>event</b> (a sensor sample, "you were admitted"), it is not retained, because replaying an old event later would be wrong. Devices also register a Last Will, so the broker publishes <code>offline</code> for them if they drop.</p>
+
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Topic</th><th>Content</th><th>QoS</th><th>Retain</th><th>How often</th><th>From &rarr; to</th></tr></thead>
+          <tbody>
+            <tr><td><code>dev/&lt;id&gt;/telemetry</code></td><td>pressure sample</td><td>0</td><td class="n">no</td><td>2/s</td><td>sensor &rarr; engine</td></tr>
+            <tr><td><code>dev/&lt;id&gt;/status</code></td><td>online / offline</td><td>1</td><td class="y">yes</td><td>on change, LWT</td><td>sensor &rarr; all</td></tr>
+            <tr><td><code>dev/&lt;id&gt;/init</code></td><td>boot info</td><td>0</td><td class="y">yes</td><td>each boot</td><td>sensor &rarr; engine</td></tr>
+            <tr><td><code>user/&lt;uid&gt;/gps</code></td><td>lat, lng, accuracy</td><td>0</td><td class="n">no</td><td>about 1/s</td><td>phone &rarr; engine</td></tr>
+            <tr><td><code>user/&lt;uid&gt;/pair</code></td><td>chosen sensor, or empty</td><td>1</td><td class="y">yes</td><td>on change</td><td>phone &rarr; engine</td></tr>
+            <tr><td><code>user/&lt;uid&gt;/floor</code></td><td>manual floor, or empty</td><td>1</td><td class="y">yes</td><td>on change</td><td>phone &rarr; engine</td></tr>
+            <tr><td><code>user/&lt;uid&gt;/presence</code></td><td>online / offline</td><td>1</td><td class="y">yes</td><td>on change, LWT</td><td>phone &rarr; all</td></tr>
+            <tr><td><code>user/&lt;uid&gt;/echo</code></td><td>timestamp</td><td>0</td><td class="n">no</td><td>every 5 s</td><td>phone &rarr; itself</td></tr>
+            <tr><td><code>user/&lt;uid&gt;/pos</code></td><td>fused position</td><td>0</td><td class="y">yes</td><td>2/s</td><td>engine &rarr; phones</td></tr>
+            <tr><td><code>user/&lt;uid&gt;/control</code></td><td>admit, reject, pairing result</td><td>1</td><td class="n">no</td><td>on event</td><td>engine &rarr; phone</td></tr>
+            <tr><td><code>site/&lt;lib&gt;/anchors</code></td><td>GPS calibration points, per library</td><td>1</td><td class="y">yes</td><td>on calibration</td><td>phone &rarr; engine</td></tr>
+            <tr><td><code>directory</code></td><td>list of sensors</td><td>0</td><td class="y">yes</td><td>on change, max 10 s</td><td>engine &rarr; phones</td></tr>
+            <tr><td><code>capacity</code></td><td>active and waiting per library</td><td>0</td><td class="y">yes</td><td>on change</td><td>engine &rarr; phones</td></tr>
+            <tr><td><code>engine/status</code></td><td>online / offline</td><td>1</td><td class="y">yes</td><td>on change, LWT</td><td>engine &rarr; phones</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="label">dev/NAV-001/telemetry</p>
+<pre>{ "id": <span class="s">"NAV-001"</span>, "role": <span class="s">"user"</span>, "site": <span class="s">"main"</span>, "seq": 1234,
+  "p": 101325.0,   <span class="c">// Pa, median of the last 5 samples</span>
+  "t": 24.5, "rssi": -58, "up": 395011 }</pre>
+
+      <p class="label">user/&lt;uid&gt;/pos</p>
+<pre>{ "x": 26.5, "y": 19.0, "z": 3.8, "floor": 2,
+  "q": { "gpsAcc": 12, "pressureOk": true, "mode": <span class="s">"sensor"</span>, "snapDist": 1.4 },
+  "ts": 1721631000000 }</pre>
+
+      <p class="label">user/&lt;uid&gt;/control</p>
+<pre>{ "action": <span class="s">"admit"</span>,   <span class="c">// admit | reject | pair_ok | pair_denied</span>
+  "reason": <span class="s">""</span>, "active": 3, "max": 5, "slots": 2, "ts": 1721631000000 }</pre>
+
+      <p class="label">capacity</p>
+<pre>{ "max": 5, "ts": 1721631000000,
+  "sites": { "main": { "active": 1, "waiting": 0 },
+             "yorba-linda": { "active": 0, "waiting": 0 } } }</pre>
+
+      <p>Every field of every topic is listed in <a href="https://github.com/Ted369369/Indoor-3D-Navigation-Platform/blob/main/docs/MQTT_TOPICS.md">docs/MQTT_TOPICS.md</a>.</p>
+    </section>
+
+    <section id="nodes">
+      <div class="num">04</div>
+      <h2>Who sends what</h2>
+      <p>There are three kinds of client on the broker. Each one only publishes the topics it owns.</p>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Client</th><th>Publishes</th><th>Subscribes to</th></tr></thead>
+          <tbody>
+            <tr><td><b>Sensor</b><br />ESP8266</td><td>telemetry, status, init</td><td>nothing</td></tr>
+            <tr><td><b>Phone</b><br />web app</td><td>gps, pair, floor, presence, echo, site anchors</td><td>its own pos, control and echo; directory; capacity; engine status; each friend's pos and presence</td></tr>
+            <tr><td><b>Engine</b><br />Python</td><td>pos, control, directory, capacity, engine status</td><td>all sensor topics, all user inputs, site anchors</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Sensors never listen to anything. That keeps the firmware simple: it connects, samples and publishes, and does not need to handle commands.</p>
+    </section>
+
+    <section id="security">
+      <div class="num">05</div>
+      <h2>Security</h2>
+      <ul class="plain">
+        <li><b>Encrypted links.</b> The sensors and the engine use MQTT over TLS on port 8883. Browsers use secure WebSockets on 8884. The site itself is served over HTTPS, which browsers require before they hand out GPS.</li>
+        <li><b>The certificate is checked.</b> The ESP8266 verifies the broker against the ISRG Root X1 certificate and gets the time from NTP first, because a certificate can't be validated without a clock. If <code>certs.h</code> still has no certificate, the link is encrypted but the broker isn't verified, and the serial log prints a warning saying so.</li>
+        <li><b>No secrets in the repository.</b> Wi-Fi and broker passwords for the sensors live in <code>secrets.h</code>, and the engine's in <code>backend/.env</code>. Both are in <code>.gitignore</code>; only example files are committed.</li>
+        <li><b>Separate broker accounts.</b> Sensors, the engine and the web app each log in with their own account and permissions. The web app's password is public by nature (it ships in the page), so that account may only publish under <code>libnav/user/</code> and <code>libnav/site/</code>. It can't fake sensor readings, the sensor list or the engine's status.</li>
+        <li><b>Row-level security.</b> Every Supabase table has RLS turned on. You can only change your own profile and pairings and only see friendships you are part of, and the database enforces that, not the app.</li>
+        <li><b>Geofence in production mode.</b> A position is only shown when the phone is within 200&nbsp;m of the library, so the app doesn't track people who aren't there.</li>
+      </ul>
+    </section>
+
+    <section id="engine">
+      <div class="num">06</div>
+      <h2>The position engine</h2>
+      <p>One Python process using paho-mqtt. It loads every library in <code>libraries.json</code> and keeps a separate map, reference sensor, calibration and user limit for each. Phones say which library they're in (<code>lib</code> in their messages) and sensors say which one they belong to (<code>site</code>). For each connected user it runs these steps twice a second and publishes the result to <code>user/&lt;uid&gt;/pos</code>, so every screen draws the same position.</p>
+      <ol class="steps">
+        <li><b>GPS to metres</b>Two calibration points tie latitude and longitude to the metre grid of the floor plan. A small constant-velocity Kalman filter smooths the jitter and throws away jumps that aren't physically possible.</li>
+        <li><b>Height from pressure</b>The hypsometric formula turns the pressure difference between your sensor and the reference sensor on 1F into a height. Using the difference means the weather cancels out.</li>
+        <li><b>Pick a floor</b>The floor only changes after 4 samples in a row agree, so standing on the stairs doesn't make the marker flicker between floors.</li>
+        <li><b>Snap to paths</b>The point is moved to the nearest corridor on that floor, so the marker doesn't drift through walls or shelves.</li>
+        <li><b>Limit to 5 sensors</b>In each library the first 5 users are admitted and the rest wait in order. When someone leaves, the next person is let in automatically. Rejected clients are reminded every 5 seconds, so a phone that missed the message still recovers.</li>
+        <li><b>Keep the sensor list</b>The engine publishes which sensors are online, their signal and whether someone is using them. The app's sensor picker reads this, and a sensor that is already taken is refused with <code>pair_denied</code>.</li>
+      </ol>
+    </section>
+
+    <section id="firmware">
+      <div class="num">07</div>
+      <h2>Sensor firmware</h2>
+      <p>One Arduino sketch for the ESP8266 with a BMP390 on I&sup2;C. Compile-time settings make a unit either a carried sensor or the fixed reference, and say which library it belongs to (<code>SITE_ID</code>).</p>
+
+      <h3>Connecting</h3>
+      <ul class="plain">
+        <li>WiFiMulti tries the library Wi-Fi first and a phone hotspot second (2.4&nbsp;GHz only).</li>
+        <li>Clock sync over NTP before the TLS handshake.</li>
+        <li>Reconnects with a growing delay instead of hammering the broker.</li>
+        <li>Logs the Wi-Fi disconnect reason and the last reset reason over serial, which is how the reboot loop below was found.</li>
+      </ul>
+
+      <h3>Measuring</h3>
+      <ul class="plain">
+        <li>BMP390 with 8&times; pressure oversampling and the built-in IIR filter.</li>
+        <li>Reads 10 times a second, takes the median of the last 5 and publishes twice a second.</li>
+        <li>Sends an <code>init</code> message with firmware build, IP, reset reason and free memory on every boot.</li>
+      </ul>
+
+      <div class="aside"><b>One bug worth mentioning.</b> The first TLS version rebooted forever right after connecting to Wi-Fi. The CA certificate was stored in flash (PROGMEM) and handed straight to BearSSL, which reads it like normal RAM and crashes on the ESP8266. Copying it into RAM first fixed it. This and the other problems are written up in <a href="https://github.com/Ted369369/Indoor-3D-Navigation-Platform/blob/main/docs/TROUBLESHOOTING_LOG.md">docs/TROUBLESHOOTING_LOG.md</a>.</div>
+    </section>
+
+    <section id="services">
+      <div class="num">08</div>
+      <h2>HiveMQ Cloud and Supabase</h2>
+      <h3>HiveMQ Cloud</h3>
+      <p>The MQTT broker. A hosted one means there's no server to keep patched, and TLS works out of the box.</p>
+      <dl class="kv">
+        <div><dt>Used for</dt><dd>All messages between sensors, engine and phones</dd></div>
+        <div><dt>Ports</dt><dd>8883 TLS for sensors and engine, 8884 secure WebSocket for browsers</dd></div>
+        <div><dt>Limits</dt><dd>The free tier allows far more connections than 5 sensors and their phones</dd></div>
+        <div><dt>Features used</dt><dd>Retained messages, Last Will, QoS 0 and 1, per-account permissions</dd></div>
+      </dl>
+
+      <h3>Supabase</h3>
+      <p>Everything that isn't live position data. It's optional: if it isn't configured the app runs on its own and just hides the friends panel.</p>
+      <dl class="kv">
+        <div><dt>Auth</dt><dd>Anonymous sign-in, so every visitor gets a stable id without making an account</dd></div>
+        <div><dt>profiles</dt><dd>Display name and the low-vision setting</dd></div>
+        <div><dt>friendships</dt><dd>Requests and accepted friends, pushed live with Realtime</dd></div>
+        <div><dt>devices, pairings</dt><dd>Which sensors exist and who is holding which one</dd></div>
+        <div><dt>keywords</dt><dd>Extra search terms that can be added without redeploying the app</dd></div>
+      </dl>
+    </section>
+
+    <section id="web">
+      <div class="num">09</div>
+      <h2>The web app</h2>
+      <p>A single page built on Three.js, hosted on GitHub Pages. Nothing to install; it runs in the browser on Android and iPhone.</p>
+      <dl class="kv">
+        <div><dt>Libraries</dt><dd>Pick the library on the first screen. Each one is a single model file with its floors, rooms, paths, stair names and search words, so adding a building doesn't need code changes. <a href="https://github.com/Ted369369/Indoor-3D-Navigation-Platform/blob/main/docs/MAPS.md">How the two maps were made</a>.</dd></div>
+        <div><dt>3D map</dt><dd>All floors stacked, or spread apart, or one floor at a time. Zone codes in the overview, full names once you pick a floor.</dd></div>
+        <div><dt>Routes</dt><dd>A* across floors. A route keeps to one staircase (in Taipei the central stairs or the stairs next to the elevator, in Yorba Linda the grand staircase or the west stairs), or uses only the elevator for step-free routes. While navigating, only the floors on the route are shown.</dd></div>
+        <div><dt>Search</dt><dd>Type a subject, a book or a place in English or Chinese: "C language" or "Qing dynasty" in Taipei, "cooking" or "storytime" in Yorba Linda. Fuzzy matching maps it to an area and starts the route.</dd></div>
+        <div><dt>Voice</dt><dd>Spoken turn-by-turn directions and voice input, plus a low-vision mode with larger controls.</dd></div>
+        <div><dt>Friends</dt><dd>Find people by name, send a request, see accepted friends on the map and get a route to them.</dd></div>
+        <div><dt>Sensor pairing</dt><dd>Lists the sensors that are online, sorted by signal, with the ones in use greyed out. You always pick yours; nothing pairs automatically.</dd></div>
+        <div><dt>GPS only</dt><dd>No sensor? Start in GPS-only mode and set your floor from a menu.</dd></div>
+        <div><dt>Zone cards</dt><dd>Tap an area to see its name, what's there, a photo and a button to go there.</dd></div>
+        <div><dt>Status</dt><dd>Indicators for the broker, GPS and sensor, the round-trip latency, and how many of the 5 sensor slots are taken.</dd></div>
+      </dl>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  <div class="in">
+    <span>Library Nav &middot; Taipei Public Library Main Library &middot; Yorba Linda Public Library</span>
+    <a href="./">Open the app</a>
+    <a href="https://github.com/Ted369369/Indoor-3D-Navigation-Platform">GitHub</a>
+    <a href="https://github.com/Ted369369/Indoor-3D-Navigation-Platform/blob/main/docs/MQTT_TOPICS.md">MQTT topics</a>
+  </div>
+</footer>
+
+<script>
+  // highlight the section being read in the contents list
+  (function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll("#toc a"));
+    if (!links.length || !("IntersectionObserver" in window)) return;
+    var byId = {};
+    links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        links.forEach(function (a) { a.classList.remove("on"); });
+        byId[e.target.id].classList.add("on");
+      });
+    }, { rootMargin: "-40% 0px -55% 0px" });
+    Object.keys(byId).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) io.observe(el);
+    });
+  })();
+</script>
+</body>
+</html>
