@@ -214,6 +214,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border: 1px solid #6d665a; padding: 7px 9px;
 }
 .route-via:hover { border-color: var(--plate-ink); }
+.route-via:disabled { cursor: default; border-color: transparent; padding-left: 0; }
 #btnEndRoute {
   grid-area: close;
   display: grid; place-items: center;

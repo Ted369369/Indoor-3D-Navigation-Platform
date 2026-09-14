@@ -2,12 +2,12 @@
  * Application orchestrator: boots the 3D scene, connectivity, chat intent,
  * voice guidance, friends, and connection-quality indicators.
  */
-import { MapScene } from "./map3d.js?v=print5";
-import { Navigator } from "./nav.js?v=print5";
-import { IntentEngine } from "./intent.js?v=print5";
-import { Speaker, Listener, Guidance } from "./voice.js?v=print5";
-import { Bus, GpsPublisher } from "./net.js?v=print5";
-import { Social } from "./supa.js?v=print5";
+import { MapScene } from "./map3d.js?v=print9";
+import { Navigator } from "./nav.js?v=print9";
+import { IntentEngine } from "./intent.js?v=print9";
+import { Speaker, Listener, Guidance } from "./voice.js?v=print9";
+import { Bus, GpsPublisher } from "./net.js?v=print9";
+import { Social } from "./supa.js?v=print9";
 
 const CFG = window.NAV_CONFIG;
 
@@ -19,12 +19,26 @@ const ICON = {
   check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
 };
 const $ = (id) => document.getElementById(id);
-const DEFAULT_START = { floor: 1, x: 26.5, y: 26.5 }; // 1F entrance lobby
-const FLOORS = ["1", "2", "3", "4", "5"];
+
+/** Where routes start before we have a position (from the library's model). */
+const startPoint = () => model?.site?.start || { floor: 1, x: 0, y: 0, label: "the entrance" };
+const levels = () => model.site.floors.map((f) => String(f.level));
 
 /** Vertical-circulation profile for routing: step-free wins, else stair choice. */
 function routeProfile() {
-  return state.accessible ? "elevator" : state.stairPref;
+  if (state.accessible) return "elevator";
+  return nav?.hasCore(state.stairPref) ? state.stairPref : "central";
+}
+
+/* Calibration is per library: saved locally and published retained to
+ * libnav/site/<library id>/anchors. The Taipei library used to keep it under
+ * the unscoped key, so that one is still read as a fallback. */
+const anchorsKey = () => `libnav.anchors.${state.library.id}`;
+const anchorsTopic = () => `libnav/site/${state.library.id}/anchors`;
+function savedAnchors() {
+  const raw = localStorage.getItem(anchorsKey()) ??
+    (state.library.id === "main" ? localStorage.getItem("libnav.anchors") : null);
+  return JSON.parse(raw || "null");
 }
 
 const state = {
@@ -53,7 +67,7 @@ async function boot() {
   $("nameInput").value = prefs.name || "";
   state.lastDeviceId = prefs.deviceId || ""; // preselect hint only - user still confirms
   state.mode = prefs.mode === "gps" ? "gps" : "esp";
-  state.myFloor = FLOORS.includes(prefs.myFloor) ? prefs.myFloor : "1";
+  state.myFloor = String(prefs.myFloor || "1"); // checked against the model once it loads
   state.stairPref = prefs.stairPref === "west" ? "west" : "central";
   state.appMode = prefs.appMode === "production" ? "production" : "test";
   $("blindToggle").checked = !!prefs.blind;
@@ -169,10 +183,38 @@ async function openLibrary(lib) {
   ]).catch(() => {});
   scene = new MapScene($("scene"), model, { onZoneClick: onZoneTap });
   nav = new Navigator(model);
+  buildFloorControls();
+  buildQuickChips();
   state.geo = null;
   state.smoother.reset();
   const prefs = JSON.parse(localStorage.getItem("libnav.prefs") || "{}");
   localStorage.setItem("libnav.prefs", JSON.stringify({ ...prefs, libraryId: lib.id }));
+}
+
+/** Floor buttons and the "I'm on" menu, built from the model's floors. */
+function buildFloorControls() {
+  const lv = levels();
+  const bar = $("floorChips");
+  bar.querySelectorAll(".fchip").forEach((b) => b.remove());
+  const explode = $("btnExplode");
+  bar.insertBefore(el(`<button class="fchip active" data-floor="all">All</button>`), explode);
+  for (const l of lv) {
+    bar.insertBefore(el(`<button class="fchip" data-floor="${l}">${l}F</button>`), explode);
+  }
+  $("myFloorSel").innerHTML = lv.map((l) => `<option value="${l}">I'm on ${l}F</option>`).join("");
+  if (!lv.includes(state.myFloor)) state.myFloor = lv[0];
+}
+
+/** Suggestion chips under the chat, different for each building. */
+function buildQuickChips() {
+  const box = $("quickChips");
+  box.innerHTML = "";
+  for (const c of model.site.quickChips || []) {
+    const chip = el(`<button type="button" class="chip"></button>`);
+    chip.dataset.q = c.q;
+    chip.textContent = c.label;
+    box.appendChild(chip);
+  }
 }
 
 /** Switch between "esp" (sensor + GPS) and "gps" (GPS only, manual floor). */
@@ -193,7 +235,7 @@ function renderDeviceList() {
   const box = $("deviceList");
   if ($("stepDevice").hidden) return;
   const devices = (state.directory?.devices || [])
-    .filter((d) => d.role === "user")
+    .filter((d) => d.role === "user" && (d.site || "main") === state.library.id)
     .sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999))
     .slice(0, CFG.maxDevices);
 
@@ -282,8 +324,8 @@ async function startCore(opts) {
   bus.client.on("connect", () => {
     publishPairing(); // re-assert (or clear) the claim on every (re)connect
     publishFloor();
-    const anchors = JSON.parse(localStorage.getItem("libnav.anchors") || "null");
-    if (anchors) bus.publish("libnav/site/anchors", anchors, { retain: true, qos: 1 });
+    const anchors = savedAnchors();
+    if (anchors) bus.publish(anchorsTopic(), anchors, { retain: true, qos: 1 });
   });
 
   bus.on(`libnav/user/${state.uid}/pos`, (t, payload) => onSelfPos(JSON.parse(payload)));
@@ -301,7 +343,7 @@ async function startCore(opts) {
   });
   // live occupancy pill (retained, so it fills in on connect)
   bus.on("libnav/capacity", (t, payload) => {
-    try { updateCapacityPill(JSON.parse(payload)); } catch { /* ignore */ }
+    try { updateCapacityPill(capacityForLibrary(JSON.parse(payload))); } catch { /* ignore */ }
   });
   // telemetry of whichever unit is currently paired (wildcard + guard, so
   // re-pairing needs no re-subscription bookkeeping)
@@ -313,7 +355,7 @@ async function startCore(opts) {
   });
 
   // ---- GPS
-  gps = new GpsPublisher(bus, state.uid, CFG.gpsPublishHz);
+  gps = new GpsPublisher(bus, state.uid, CFG.gpsPublishHz, state.library.id);
   gps.addEventListener("fix", (e) => {
     updateGpsDot(e.detail.acc);
     showLocalGps(e.detail); // move the dot as you walk, engine or not
@@ -353,10 +395,8 @@ function finalizeStart() {
   const sensorNote = gpsOnly
     ? `You're on GPS only, so set your floor with the "I'm on" menu at the top.`
     : `Sensor ${state.deviceId} is paired.`;
-  chatSystem(
-    `Hi ${state.name}. ${sensorNote} Type a subject ("C language", ` +
-    `"Qing dynasty"), a place ("study space", "newspapers") or a friend's name.`
-  );
+  const examples = model.site.examples || "a subject or a place";
+  chatSystem(`Hi ${state.name}. ${sensorNote} Type ${examples} or a friend's name.`);
   speaker.speak(
     `Hi ${state.name}. ` +
     (gpsOnly
@@ -371,7 +411,7 @@ function publishPairing() {
   if (!state.uid) return;
   const topic = `libnav/user/${state.uid}/pair`;
   if (state.deviceId) {
-    bus.publish(topic, { device: state.deviceId }, { retain: true, qos: 1 });
+    bus.publish(topic, { device: state.deviceId, lib: state.library.id }, { retain: true, qos: 1 });
   } else {
     bus.publish(topic, "", { retain: true, qos: 1 });
   }
@@ -382,7 +422,7 @@ function publishFloor() {
   if (!state.uid) return;
   const topic = `libnav/user/${state.uid}/floor`;
   if (state.mode === "gps") {
-    bus.publish(topic, { floor: +state.myFloor }, { retain: true, qos: 1 });
+    bus.publish(topic, { floor: +state.myFloor, lib: state.library.id }, { retain: true, qos: 1 });
   } else {
     bus.publish(topic, "", { retain: true, qos: 1 });
   }
@@ -434,7 +474,7 @@ function makeGeo(anchors) {
 
 function ensureGeo(fix) {
   if (state.geo) return state.geo;
-  const saved = JSON.parse(localStorage.getItem("libnav.anchors") || "null");
+  const saved = savedAnchors();
   if (saved) {
     state.geo = makeGeo(saved);
   } else if (state.appMode === "production") {
@@ -585,11 +625,11 @@ function showLocalGps(fix) {
 
   const floor = state.mode === "gps"
     ? state.myFloor
-    : String(state.pos?.floor || state.myFloor || "2");
+    : String(state.pos?.floor || state.myFloor || levels()[0]);
 
   // snap onto corridors once the map is calibrated (skip while auto-anchored,
   // where the frame isn't yet aligned to the building)
-  if (localStorage.getItem("libnav.anchors")) [x, y] = snapToGraph(floor, x, y);
+  if (savedAnchors()) [x, y] = snapToGraph(floor, x, y);
 
   const pos = { x, y, floor: Number(floor), q: { gpsAcc: fix.acc, mode: "local-gps" } };
   state.pos = pos;
@@ -625,7 +665,9 @@ function onControl(msg) {
   } else if (msg.action === "pair_denied") {
     const why = msg.reason === "in-use"
       ? `${msg.device} is already in use by another visitor`
-      : `${msg.device} cannot be paired (${msg.reason})`;
+      : msg.reason === "other-library"
+        ? `${msg.device} belongs to a different library`
+        : `${msg.device} cannot be paired (${msg.reason})`;
     state.deviceId = "";
     publishPairing();
     toast(why, "warn");
@@ -655,7 +697,7 @@ setInterval(() => {
 function navigateTo(target, lead = "") {
   const start = state.pos
     ? { floor: state.pos.floor, x: state.pos.x, y: state.pos.y }
-    : DEFAULT_START;
+    : startPoint();
   const route = nav.route(start, target, routeProfile());
   if (!route) {
     chatSystem("Couldn't find a route there.");
@@ -666,7 +708,7 @@ function navigateTo(target, lead = "") {
   scene.showPath(route.points);
   scene.highlightZone(typeof target === "string" ? target : null);
   if (!state.pos) {
-    chatSystem("No position yet, so the route starts at the 1F entrance.");
+    chatSystem(`No position yet, so the route starts at ${startPoint().label || "the entrance"}.`);
   }
 
   $("routeBanner").hidden = false;
@@ -689,10 +731,12 @@ function updateRouteBanner(pos) {
   const mins = Math.max(1, Math.round(r.etaS / 60));
   $("routeMeta").textContent = `${remaining} m · ~${mins} min · ${r.instructions.length - 1} steps`;
   // show the vertical option in use, and let the user switch it
-  const viaLabel = { central: "Central stairs", west: "Stairs by elevator", elevator: "Elevator" }[routeProfile()];
+  const profile = routeProfile();
+  const viaLabel = model.site.cores?.[profile] || profile;
   const crossesFloors = r.points.some((p, i) => i && p.floor !== r.points[i - 1].floor);
   $("routeVia").hidden = !crossesFloors;
   $("routeVia").textContent = `via ${viaLabel}`;
+  $("routeVia").disabled = !(nav.hasCore("central") && nav.hasCore("west"));
 }
 
 /** Swap between the central stairs and the ones by the lift, then re-route. */
@@ -701,10 +745,11 @@ function toggleStairPref() {
     toast("Step-free mode is on - routes use the elevator.", "warn");
     return;
   }
-  state.stairPref = state.stairPref === "central" ? "west" : "central";
+  if (!(nav.hasCore("central") && nav.hasCore("west"))) return;
+  state.stairPref = routeProfile() === "central" ? "west" : "central";
   const prefs = JSON.parse(localStorage.getItem("libnav.prefs") || "{}");
   localStorage.setItem("libnav.prefs", JSON.stringify({ ...prefs, stairPref: state.stairPref }));
-  const label = state.stairPref === "central" ? "the central stairs" : "the stairs by the elevator";
+  const label = `the ${(model.site.cores?.[state.stairPref] || state.stairPref).toLowerCase()}`;
   toast(`Routing via ${label}`, "ok");
   speaker.speak(`Now routing via ${label}.`);
   if (state.routeTarget) navigateTo(state.routeTarget);
@@ -788,7 +833,7 @@ function submitChat() {
     speaker.speak(res.reply);
     navigateTo(res.zoneId);
   } else if (res.kind === "nearest") {
-    const start = state.pos || DEFAULT_START;
+    const start = state.pos || startPoint();
     const best = nav.nearest(
       { floor: start.floor, x: start.x, y: start.y },
       res.candidates,
@@ -946,11 +991,12 @@ function wireUi() {
     }
   });
 
-  document.querySelectorAll("#quickChips .chip").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      $("chatInput").value = chip.dataset.q;
-      submitChat();
-    });
+  // chips are rebuilt per library, so listen on the container
+  $("quickChips").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    $("chatInput").value = chip.dataset.q;
+    submitChat();
   });
 
   // collapse / reopen the assistant so it doesn't cover the map
@@ -958,11 +1004,11 @@ function wireUi() {
   $("btnChatOpen").addEventListener("click", () => setChatCollapsed(false));
   setChatCollapsed(JSON.parse(localStorage.getItem("libnav.chatCollapsed") || "false"));
 
-  document.querySelectorAll("#floorChips .fchip").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      scene.setFloorFocus(chip.dataset.floor);
-      setActiveChip(chip.dataset.floor);
-    });
+  $("floorChips").addEventListener("click", (e) => {
+    const chip = e.target.closest(".fchip");
+    if (!chip) return;
+    scene.setFloorFocus(chip.dataset.floor);
+    setActiveChip(chip.dataset.floor);
   });
   $("btnExplode").addEventListener("click", () => {
     const on = $("btnExplode").classList.toggle("active");
@@ -1018,8 +1064,7 @@ function wireUi() {
 
   // settings / calibration
   $("btnSettings").addEventListener("click", () => {
-    const a = JSON.parse(localStorage.getItem("libnav.anchors") || "null")
-      || model.site.geoAnchors;
+    const a = savedAnchors() || model.site.geoAnchors;
     $("originLat").value = a.origin.lat; $("originLng").value = a.origin.lng;
     $("xLat").value = a.xAxis.lat; $("xLng").value = a.xAxis.lng;
     const radio = document.querySelector(`input[name="appMode"][value="${state.appMode}"]`);
@@ -1045,8 +1090,8 @@ function wireUi() {
       origin: { lat: +$("originLat").value, lng: +$("originLng").value },
       xAxis: { lat: +$("xLat").value, lng: +$("xLng").value },
     };
-    localStorage.setItem("libnav.anchors", JSON.stringify(anchors));
-    bus.publish("libnav/site/anchors", anchors, { retain: true, qos: 1 });
+    localStorage.setItem(anchorsKey(), JSON.stringify(anchors));
+    bus.publish(anchorsTopic(), anchors, { retain: true, qos: 1 });
     state.geo = null; // rebuild the local converter from the new calibration
     state.smoother.reset();
     if (gps?.lastFix) showLocalGps(gps.lastFix);
@@ -1093,6 +1138,13 @@ function updateSensorDot() {
   dot.className = "dot " + cls;
   dot.title = `Sensor ${state.deviceId}: ` +
     (age < 15000 ? `online, RSSI ${state.sensorRssi} dBm` : "no data");
+}
+
+/** libnav/capacity carries every library; pull out the one we're in. */
+function capacityForLibrary(cap) {
+  if (!cap?.sites) return cap; // older engine: one shared count
+  const here = cap.sites[state.library.id] || { active: 0, waiting: 0 };
+  return { ...here, max: cap.max };
 }
 
 /** Live occupancy pill in the top bar, fed by retained libnav/capacity. */

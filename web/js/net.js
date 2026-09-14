@@ -106,10 +106,11 @@ export class Bus extends EventTarget {
 
 /** Browser geolocation -> MQTT gps topic, throttled to gpsPublishHz. */
 export class GpsPublisher extends EventTarget {
-  constructor(bus, uid, hz = 1) {
+  constructor(bus, uid, hz = 1, lib = "main") {
     super();
     this.bus = bus;
     this.uid = uid;
+    this.lib = lib; // tells the engine which building's map to use
     this.minInterval = 1000 / hz;
     this.watchId = null;
     this.lastSent = 0;
@@ -138,7 +139,7 @@ export class GpsPublisher extends EventTarget {
         const now = Date.now();
         if (now - this.lastSent >= this.minInterval) {
           this.lastSent = now;
-          this.bus.publish(`libnav/user/${this.uid}/gps`, fix);
+          this.bus.publish(`libnav/user/${this.uid}/gps`, { ...fix, lib: this.lib });
         }
       },
       (err) => this.dispatchEvent(new CustomEvent("error", { detail: err.message })),

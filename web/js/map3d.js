@@ -47,17 +47,20 @@ export class MapScene {
     this.labelSprites = [];
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(
-      50, container.clientWidth / container.clientHeight, 0.1, 500
+      50, container.clientWidth / container.clientHeight, 0.1, 800
     );
-    this.camera.position.set(26, 42, 52);
+    // framing was tuned on a 50 x 35 m building; scale it for other footprints
+    const k = Math.max(1, Math.max(this.W / 50, this.D / 35)) ** 0.75;
+    const topZ = Math.max(...Object.values(this.floorZ));
+    this.camera.position.set(26 * k, 42 * k, 52 * k);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.target.set(0, 8, 0);
+    this.controls.target.set(0, Math.max(3, topZ / 2), 0);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.06;
     this.controls.maxPolarAngle = Math.PI * 0.49;
     this.controls.minDistance = 10;
-    this.controls.maxDistance = 160;
+    this.controls.maxDistance = 160 * k;
 
     this.scene.add(new THREE.HemisphereLight(0xfffaf0, 0x8a8272, 1.05));
     const sun = new THREE.DirectionalLight(0xfff6e8, 1.25);
@@ -66,7 +69,7 @@ export class MapScene {
 
     // ground shadow disc for depth perception
     const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(64, 48),
+      new THREE.CircleGeometry(64 * Math.max(1, this.W / 50), 48),
       new THREE.MeshBasicMaterial({ color: 0x1d1b17, transparent: true, opacity: 0.06 })
     );
     ground.rotation.x = -Math.PI / 2;
@@ -186,12 +189,14 @@ export class MapScene {
           emissiveIntensity: 0.05,
         });
         const mesh = this._flatExtrude(zone.poly, 0.14, mat);
-        mesh.position.y = 0.02;
+        // stairs and lifts often sit inside a room's outline; lift them a
+        // little so the two surfaces don't flicker against each other
+        mesh.position.y = isCirc ? 0.05 : 0.02;
         mesh.userData = { zoneId: zone.id, baseOpacity: mat.opacity, baseEmissive: 0.05 };
         this.zoneMeshes.set(zone.id, mesh);
         group.add(mesh);
 
-        if (!isCirc) {
+        if (!isCirc && !zone.noLabel) {
           const c = centroid(zone.poly);
           for (const full of [false, true]) {
             const label = this._makeLabel(zone, full);
@@ -209,7 +214,7 @@ export class MapScene {
   _makeLabel(zone, full) {
     // Plates keep a fixed on-screen size (sizeAttenuation off), so the canvas
     // is drawn in CSS pixels times the device ratio and maps ~1:1 to the screen.
-    const code = zone.id.split("-")[1];
+    const code = zone.code || zone.id.split("-").slice(1).join("-");
     const S = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
     const codeFont = '700 16px "Barlow Semi Condensed", "Arial Narrow", sans-serif';
     const nameFont = '500 13px "Barlow", system-ui, sans-serif';

@@ -3,13 +3,13 @@
  * A* across floors: horizontal edges cost their length; vertical connectors
  * cost an effort-weighted equivalent distance.
  *
- * Vertical circulation is grouped into three "cores" (map_model connectors
- * carry a `core` tag): the central stairs/escalator, the stairs by the
- * elevator, and the elevator itself. A route uses exactly one core, so the
- * three profiles are:
- *   central  - all floor changes on the central stairs/escalator
- *   west     - all floor changes on the stairs beside the elevator
+ * Vertical circulation is grouped into up to three "cores" (connectors in
+ * the model carry a `core` tag). A route uses exactly one core, so the
+ * profiles are:
+ *   central  - the main staircase (Taipei: central stairs and escalator)
+ *   west     - the second staircase (Taipei: stairs beside the elevator)
  *   elevator - step-free, elevator only (blind / wheelchair users)
+ * What each core is called in a given building comes from `site.cores`.
  */
 
 const CONNECTOR_COST = {
@@ -40,6 +40,14 @@ export class Navigator {
     // legacy aliases so older callers keep working
     this.graphs.normal = this.graphs.central;
     this.graphs.accessible = this.graphs.elevator;
+    this.cores = new Set(
+      model.connectors.map((c) => c.core || (c.accessible ? "elevator" : "central"))
+    );
+  }
+
+  /** Does this building have connectors for the given core? */
+  hasCore(core) {
+    return this.cores.has(core);
   }
 
   _buildGraph(allowedCores) {

@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;1,6..72,500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/styles.css?v=print5" />
+  <link rel="stylesheet" href="css/styles.css?v=print9" />
   <script>
     // ES modules and fetch() don't run from file://, so explain instead of
     // leaving a blank page.
@@ -68,20 +68,10 @@
 
     <div class="floors">
       <span id="floorNow" class="floor-now">No fix</span>
-      <select id="myFloorSel" class="myfloor" hidden aria-label="The floor you are on">
-        <option value="1">I'm on 1F</option>
-        <option value="2">I'm on 2F</option>
-        <option value="3">I'm on 3F</option>
-        <option value="4">I'm on 4F</option>
-        <option value="5">I'm on 5F</option>
-      </select>
+      <!-- options and floor buttons are filled in from the library's model -->
+      <select id="myFloorSel" class="myfloor" hidden aria-label="The floor you are on"></select>
       <nav id="floorChips" aria-label="Show floor">
         <button class="fchip active" data-floor="all">All</button>
-        <button class="fchip" data-floor="1">1F</button>
-        <button class="fchip" data-floor="2">2F</button>
-        <button class="fchip" data-floor="3">3F</button>
-        <button class="fchip" data-floor="4">4F</button>
-        <button class="fchip" data-floor="5">5F</button>
         <button id="btnExplode" title="Spread floors apart" aria-label="Spread floors apart">
           <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16"/><path d="M8.5 7.5 12 4l3.5 3.5"/><path d="M8.5 16.5 12 20l3.5-3.5"/></svg>
         </button>
@@ -136,12 +126,7 @@
     </div>
     <div id="chatLog" role="log" aria-live="polite"></div>
     <div id="suggestions"></div>
-    <div id="quickChips">
-      <button class="chip" data-q="self study">Study space</button>
-      <button class="chip" data-q="latest news">Newspapers</button>
-      <button class="chip" data-q="restroom">Restrooms</button>
-      <button class="chip" data-q="programming">Programming books</button>
-    </div>
+    <div id="quickChips"></div>
     <form id="chatForm" autocomplete="off">
       <input id="chatInput" type="text" placeholder="A subject, a title or a place"
              aria-label="Where do you want to go?" />
@@ -298,6 +283,6 @@
   <div id="announcer" class="sr-only" aria-live="assertive"></div>
   <div id="toast" role="status"></div>
 
-  <script type="module" src="js/app.js?v=print5"></script>
+  <script type="module" src="js/app.js?v=print9"></script>
 </body>
 </html>
