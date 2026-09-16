@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="color-scheme" content="light" />
+  <meta name="description" content="Find your way around a library on a 3D map, using your phone's GPS and a small floor sensor." />
+  <title>Library Nav</title>
+  <link rel="icon" href="img/icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="css/styles.css?v=maps4" />
+  <script>
+    // ES modules and fetch() don't run from file://, so explain instead of
+    // leaving a blank page.
+    if (location.protocol === "file:") {
+      addEventListener("DOMContentLoaded", function () {
+        document.body.innerHTML =
+          '<div style="max-width:480px;margin:14vh auto;padding:24px;font:15px/1.55 -apple-system,Segoe UI,Roboto,sans-serif;color:#1f2328">' +
+          '<h1 style="font-size:22px;margin:0 0 8px">This page needs a web server</h1>' +
+          '<p style="color:#5b6470;margin:0 0 14px">Browsers block scripts loaded straight from disk. From the project folder run:</p>' +
+          '<pre style="background:#f3f5f7;border-radius:10px;padding:12px 14px;margin:0 0 14px;font-size:13px;overflow-x:auto">' +
+          'python -m http.server 8123 --directory web</pre>' +
+          '<p style="color:#5b6470;margin:0">then open <a href="http://localhost:8123">localhost:8123</a>. ' +
+          'Phones need HTTPS for GPS, so deploy it for real use (see docs/SETUP.md).</p></div>';
+      });
+    }
+  </script>
+  <script src="config.js"></script>
+  <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="scene" aria-hidden="true"></div>
+
+  <!-- search and category chips, floating over the map -->
+  <div id="top" class="top">
+    <form id="searchForm" class="searchbar" role="search" autocomplete="off">
+      <button type="button" id="btnBack" class="sb-btn" aria-label="Back" hidden><svg class="ic" data-icon="arrow_back"></svg></button>
+      <span class="sb-lead" id="searchLead" aria-hidden="true"><svg class="ic" data-icon="search"></svg></span>
+      <input id="searchInput" type="search" enterkeyhint="search" placeholder="Search the library"
+             aria-label="Search for a subject, a room or a friend" />
+      <button type="button" id="btnClear" class="sb-btn" aria-label="Clear" hidden><svg class="ic" data-icon="close"></svg></button>
+      <button type="button" id="btnMic" class="sb-btn" aria-label="Search by voice"><svg class="ic" data-icon="mic"></svg></button>
+      <button type="button" id="btnProfile" class="avatar" aria-label="You and your friends">
+        <span id="avatarInitial">?</span>
+        <span id="friendBadge" class="badge" hidden></span>
+      </button>
+    </form>
+    <div id="chips" class="chips" aria-label="Quick searches"></div>
+  </div>
+
+  <div id="awayNotice" class="notice" role="status" hidden>
+    <svg class="ic" data-icon="location_on"></svg>
+    <span>You're <b class="away-dist"></b> from the library. Your dot shows up once you're
+      within <span class="away-radius"></span>.</span>
+  </div>
+
+  <!-- turn-by-turn banner while navigating -->
+  <div id="navBanner" class="nav-banner" role="status" aria-live="polite" hidden>
+    <span id="nbIcon" class="nb-icon"></span>
+    <div class="nb-text">
+      <div id="nbMain" class="nb-main"></div>
+      <div id="nbSub" class="nb-sub"></div>
+    </div>
+  </div>
+
+  <div id="mapControls" class="map-controls">
+    <div id="levels" class="levels" role="group" aria-label="Floors"></div>
+    <button id="btnVoice" class="fab" title="Read directions aloud" aria-label="Read directions aloud" aria-pressed="false">
+      <svg class="ic" data-icon="volume_off"></svg>
+    </button>
+    <button id="btnLocate" class="fab" title="Show where I am" aria-label="Show where I am">
+      <svg class="ic" data-icon="my_location"></svg>
+    </button>
+  </div>
+
+  <!-- bottom sheet on phones, side panel on wider screens -->
+  <section id="sheet" class="sheet" data-state="peek" aria-label="Places and directions">
+    <div id="sheetHandle" class="sheet-handle" role="button" tabindex="0" aria-label="Expand or collapse"><span></span></div>
+    <div id="sheetBody" class="sheet-body">
+
+      <div id="viewHome" class="view">
+        <div class="home-head">
+          <div class="home-title">
+            <h2 id="homeTitle">Library</h2>
+            <p id="homeSub" class="sub"></p>
+          </div>
+          <button id="btnSettings" class="icon-btn" aria-label="Settings"><svg class="ic" data-icon="tune"></svg></button>
+        </div>
+        <label id="myFloorWrap" class="my-floor" hidden>
+          <span>I'm on</span>
+          <select id="myFloorSel" aria-label="The floor you're on"></select>
+        </label>
+        <div class="status-row" aria-label="Connection">
+          <span id="connMqtt" class="stat" title="Server"><i></i><span class="stat-label">Server</span></span>
+          <span id="connGps" class="stat" title="GPS"><i></i><span class="stat-label">GPS</span></span>
+          <span id="connSensor" class="stat" title="Floor sensor"><i></i><span class="stat-label">Sensor</span></span>
+          <span id="capPill" class="stat cap" hidden><svg class="ic" data-icon="sensors"></svg><span class="cap-count"></span></span>
+        </div>
+        <h3 id="placeListTitle" class="section-title">On this floor</h3>
+        <div id="placeList" class="list"></div>
+      </div>
+
+      <div id="viewResults" class="view" hidden>
+        <div id="resultList" class="list"></div>
+      </div>
+
+      <div id="viewPlace" class="view" hidden>
+        <div class="place-head">
+          <span id="placeBadge" class="badge-icon lg"></span>
+          <div class="place-title">
+            <h2 id="zoneName"></h2>
+            <p id="zoneFloor" class="sub"></p>
+          </div>
+          <button id="btnClosePlace" class="icon-btn" aria-label="Close"><svg class="ic" data-icon="close"></svg></button>
+        </div>
+        <div class="place-actions">
+          <button id="zoneGoBtn" class="btn primary"><svg class="ic" data-icon="directions"></svg>Directions</button>
+          <button id="btnShowOnMap" class="btn tonal"><svg class="ic" data-icon="location_on"></svg>Show on map</button>
+        </div>
+        <p id="placeNote" class="place-note" hidden></p>
+        <figure id="placePhoto" class="place-photo" hidden>
+          <img id="zonePhotoImg" alt="" />
+        </figure>
+        <p id="zoneDesc" class="place-desc"></p>
+      </div>
+
+      <div id="viewRoute" class="view" hidden>
+        <div class="route-head">
+          <div>
+            <div class="route-eta"><b id="routeTime"></b> <span id="routeDist"></span></div>
+            <div id="routeDest" class="sub"></div>
+          </div>
+          <button id="btnEndRoute" class="btn danger">End</button>
+        </div>
+        <button id="routeVia" class="via" hidden></button>
+        <ol id="stepList" class="steps"></ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- you, your friends, and app links -->
+  <aside id="profilePanel" class="panel" aria-label="You and your friends" hidden>
+    <div class="panel-head">
+      <h2>You</h2>
+      <button id="btnCloseProfile" class="icon-btn" aria-label="Close"><svg class="ic" data-icon="close"></svg></button>
+    </div>
+    <div class="panel-body">
+      <div class="me-card">
+        <span id="meAvatar" class="avatar big">?</span>
+        <div>
+          <div id="meName" class="me-name"></div>
+          <div id="meMode" class="sub"></div>
+        </div>
+      </div>
+      <div class="panel-links">
+        <button id="btnOpenSettings" class="link-row"><svg class="ic" data-icon="tune"></svg>Settings<svg class="ic chev" data-icon="chevron_right"></svg></button>
+        <button id="btnSwitchLibrary" class="link-row"><svg class="ic" data-icon="local_library"></svg>Switch library<svg class="ic chev" data-icon="chevron_right"></svg></button>
+        <a class="link-row" href="about.html"><svg class="ic" data-icon="info"></svg>How it works<svg class="ic chev" data-icon="chevron_right"></svg></a>
+      </div>
+
+      <div id="friendsSection">
+        <h3 class="section-title">Friends</h3>
+        <form id="friendSearchForm" class="field-row">
+          <input id="friendSearchInput" type="search" placeholder="Find someone by name" />
+          <button type="submit" class="btn tonal small">Search</button>
+        </form>
+        <div id="friendSearchResults" class="list"></div>
+        <div id="friendRequests" class="list"></div>
+        <div id="friendList" class="list"></div>
+      </div>
+      <p id="soloNote" class="sub pad" hidden>Friends aren't available because no Supabase project is set up.</p>
+    </div>
+  </aside>
+
+  <div id="settingsModal" class="panel" hidden>
+    <form id="settingsForm">
+      <div class="panel-head">
+        <h2>Settings</h2>
+        <button type="button" id="btnCloseSettings" class="icon-btn" aria-label="Close"><svg class="ic" data-icon="close"></svg></button>
+      </div>
+      <div class="panel-body">
+        <h3 class="section-title">When to show my dot</h3>
+        <label class="radio-row"><input type="radio" name="appMode" value="test" />
+          <span><b>Anywhere</b><span class="sub">Test mode. Handy for trying it out at home.</span></span></label>
+        <label class="radio-row"><input type="radio" name="appMode" value="production" />
+          <span><b>Only at the library</b><span class="sub">Hides your dot when you're more than 200 m away.</span></span></label>
+
+        <h3 class="section-title">Map calibration</h3>
+        <p class="sub">Tie two corners of the building to GPS. Stand at each corner and tap
+          "Use my location", or paste coordinates from Google Maps.</p>
+        <fieldset class="coords">
+          <legend>North-west corner</legend>
+          <div class="field-row">
+            <input id="originLat" type="number" step="any" placeholder="Latitude" required />
+            <input id="originLng" type="number" step="any" placeholder="Longitude" required />
+          </div>
+          <button type="button" id="btnUseHereOrigin" class="btn text small"><svg class="ic" data-icon="my_location"></svg>Use my location</button>
+        </fieldset>
+        <fieldset class="coords">
+          <legend id="xAxisLegend">North-east corner</legend>
+          <div class="field-row">
+            <input id="xLat" type="number" step="any" placeholder="Latitude" required />
+            <input id="xLng" type="number" step="any" placeholder="Longitude" required />
+          </div>
+          <button type="button" id="btnUseHereX" class="btn text small"><svg class="ic" data-icon="my_location"></svg>Use my location</button>
+        </fieldset>
+        <button type="submit" class="btn primary block">Save calibration</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- first run -->
+  <div id="welcomeModal" class="onboard">
+    <form id="welcomeForm" class="onboard-card" novalidate>
+      <div class="ob-top">
+        <span class="app-mark" aria-hidden="true"><svg class="ic" data-icon="local_library" data-filled="1"></svg></span>
+        <div class="ob-steps" aria-hidden="true"><i class="on"></i><i></i><i></i></div>
+      </div>
+
+      <div id="stepLibrary" class="ob-step">
+        <h1>Which library are you visiting?</h1>
+        <p class="sub">We'll show you where you are inside and how to get to any shelf, desk or room.</p>
+        <div id="libraryList" class="options" role="listbox" aria-label="Libraries">
+          <div class="empty"><span class="spinner"></span>Loading libraries</div>
+        </div>
+      </div>
+
+      <div id="stepProfile" class="ob-step" hidden>
+        <h1>What should we call you?</h1>
+        <p class="sub">Friends see this name next to your dot on the map.</p>
+        <input id="nameInput" class="text-input" type="text" maxlength="24" placeholder="Your name" autocomplete="nickname" />
+        <label class="switch-row">
+          <span><b>Read directions aloud</b><span class="sub">Spoken turn-by-turn directions and larger text, for low vision.</span></span>
+          <input id="blindToggle" type="checkbox" role="switch" />
+        </label>
+        <label class="switch-row">
+          <span><b>Avoid stairs</b><span class="sub">Routes take the elevator between floors.</span></span>
+          <input id="accessibleToggle" type="checkbox" role="switch" />
+        </label>
+      </div>
+
+      <div id="stepDevice" class="ob-step" hidden>
+        <h1>How should we find you?</h1>
+        <p class="sub">Your phone's GPS knows where you are on a floor. A small sensor works out which floor.</p>
+        <div class="options" role="radiogroup" aria-label="Positioning">
+          <button type="button" id="modeEsp" class="option selected" role="radio" aria-checked="true">
+            <span class="opt-icon"><svg class="ic" data-icon="sensors"></svg></span>
+            <span class="opt-text"><b>I have a sensor</b><span class="sub">Your floor is detected for you.</span></span>
+          </button>
+          <button type="button" id="modeGps" class="option" role="radio" aria-checked="false">
+            <span class="opt-icon"><svg class="ic" data-icon="smartphone"></svg></span>
+            <span class="opt-text"><b>Just my phone</b><span class="sub">You pick your floor yourself.</span></span>
+          </button>
+        </div>
+        <div id="espPickWrap">
+          <h3 class="section-title">Sensors nearby</h3>
+          <div id="deviceList" class="options compact" role="listbox" aria-label="Sensors nearby">
+            <div class="empty"><span class="spinner"></span>Looking for sensors</div>
+          </div>
+          <p class="sub small">The ID is printed on the sensor.</p>
+        </div>
+      </div>
+
+      <div class="ob-foot">
+        <button id="startBtn" type="submit" class="btn primary block">Continue</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="capacityOverlay" class="dialog-backdrop" hidden>
+    <div class="dialog" role="alertdialog" aria-labelledby="capTitle">
+      <span class="dialog-icon"><svg class="ic" data-icon="hourglass_top"></svg></span>
+      <h2 id="capTitle">All sensors are in use</h2>
+      <p class="sub" id="capacityText">You're in the queue and will connect as soon as one frees up.</p>
+      <span class="spinner"></span>
+    </div>
+  </div>
+
+  <div id="announcer" class="sr-only" aria-live="assertive"></div>
+  <div id="toast" role="status"></div>
+
+  <script type="module" src="js/app.js?v=maps4"></script>
+</body>
+</html>
