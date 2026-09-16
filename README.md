@@ -10,6 +10,12 @@ California.
 
 Every push to `main` redeploys `web/` to GitHub Pages.
 
+<p>
+  <img src="web/img/shot-phone-home.webp" alt="Map of the Yorba Linda library's lower level with a blue dot in the lobby" width="260" />
+  <img src="web/img/shot-phone-route.webp" alt="Directions to the Teen Loft on the upper floor" width="260" />
+</p>
+<img src="web/img/shot-desktop-route.webp" alt="Directions to the science books on floor 5 of the Taipei library" width="760" />
+
 ## What it does
 
 **Taipei** has five floors, 50 x 35 m, 3.8 m between floors. 1F is the service
@@ -52,7 +58,7 @@ at the same time in each library.
 Sensors aren't typed in by id. The app lists the units that are switched on
 nearby (strongest signal first, ones already in use greyed out) and you tap
 the one in your hand. If you don't have a sensor, GPS-only mode works too; you
-pick your floor from a menu at the top.
+pick your floor from a menu in the panel.
 
 ## Repository
 
@@ -79,4 +85,5 @@ flashing the firmware, running the engine and deploying the site, and takes
 roughly 45 minutes the first time.
 
 Built with: ESP8266 (Arduino), BMP390, MQTT on HiveMQ Cloud, Python, Three.js,
-Supabase, Web Speech API.
+Supabase, Web Speech API. Icons are Google's
+[Material Symbols](https://github.com/google/material-design-icons) (Apache License 2.0).

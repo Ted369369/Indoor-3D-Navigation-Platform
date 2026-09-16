@@ -81,9 +81,9 @@ the top of the sketch. The firmware tries address `0x77` first, then `0x76`
 5. Flash it and open the serial monitor at 115200 baud. You should see Wi-Fi,
    NTP and MQTT connect. The LED blinks on every publish (twice a second).
 6. Put the reference sensor anywhere on **1F** on a USB power adapter and
-   leave it there. Stick a label with the `DEVICE_ID` on each carried sensor. The app lists
-   sensors that are switched on, and the label is how a visitor knows which
-   entry is the one in their hand.
+   leave it there. Stick a label with the `DEVICE_ID` on each carried sensor.
+   The app lists sensors that are switched on, and the label is how a visitor
+   knows which entry is the one in their hand.
 
 ### If the BMP390 isn't found
 
@@ -143,19 +143,19 @@ use. It gives back its slots as soon as it exits.
        sensor someone else is using can't be picked. The floor is then
        detected automatically.
      - **Phone GPS only.** No hardware. Position on the floor comes from GPS,
-       and you set the floor with the "I'm on" menu in the top bar. Remember to
+       and you set the floor with the "I'm on" menu in the panel. Remember to
        change it when you take the stairs.
 
 ## Test mode and production mode
 
-Settings (the sliders button) has a **Mode** switch:
+Settings (the sliders button in the panel) has a **When to show my dot** choice:
 
-- **Test** (default): your marker shows wherever you are, placed relative to
-  where you started. Useful for demos away from the building.
-- **Production**: your marker only shows when the phone is within **200 m of
-  the library** (Taipei centre `25.029137, 121.53819`, Yorba Linda
-  `33.890775, -117.810613`). Further away the marker is
-  hidden and a notice says how far you are. Position uses the real building
+- **Anywhere** (test mode, the default): your marker shows wherever you are,
+  placed relative to where you started. Useful for demos away from the building.
+- **Only at the library** (production mode): your marker only shows when the
+  phone is within **200 m of the library** (Taipei centre
+  `25.029137, 121.53819`, Yorba Linda `33.890775, -117.810613`). Further away
+  the marker is hidden and a notice says how far you are. Position uses the real building
   coordinates. Use this for the public site.
 
 The centre and radius are `site.center` and `site.geofenceRadius` in the
@@ -176,9 +176,9 @@ The map has to know where the building is:
 
 ## Notes
 
-- **Status indicators.** NET, GPS and ALT in the top bar are the broker, the
-  phone's GPS and the pressure sensor. The number next to them is the round
-  trip to the broker in milliseconds.
+- **Status indicators.** The small pills in the panel show the server (with the
+  round trip in milliseconds), the phone's GPS accuracy, the paired sensor, and
+  how many of the 5 sensor slots are in use.
 - **Floor detection.** The BMP390 is accurate to about 0.25 m and floors are
   3.8 m apart, so there's a lot of margin. The floor only changes after 4
   matching samples (2 seconds), so it doesn't flicker on the stairs. If floors
@@ -193,8 +193,8 @@ The map has to know where the building is:
 - **Floors and stairs.** The model covers 1F to 5F, 3.8 m apart. To change
   floors a route uses the **central stairs and escalator**, the **stairs next to
   the elevator**, or the **elevator** for step-free routes, and sticks to the
-  same one the whole way. The button in the route sign switches between the two
-  staircases; the step-free setting forces the elevator.
+  same one the whole way. The "Change" button in the directions panel switches
+  between the two staircases; the step-free setting forces the elevator.
 - **Zone photos.** Tapping a zone opens a card. Put a photo at
   `web/photos/<ZONE-ID>.jpg` (e.g. `3F-REF.jpg`) and it appears there. See
   `web/photos/README.md`, and only use photos you're allowed to publish.
