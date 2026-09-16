@@ -181,13 +181,22 @@ export class Navigator {
       if (a.floor !== b.floor) {
         const up = this.floorZ[b.floor] > this.floorZ[a.floor];
         const kind = b.via || "stairs";
+        totalM += CONNECTOR_COST[kind] ? CONNECTOR_COST[kind](1) : 15;
+        // riding several floors in a row is one step, not one per floor
+        const prev = instructions[instructions.length - 1];
+        if (prev?.type === "floor" && prev.kind === kind && prev.up === up && prev.at === i - 2) {
+          prev.at = i - 1;
+          prev.text = `Take the ${kind} ${up ? "up" : "down"} to floor ${b.floor}`;
+          continue;
+        }
         instructions.push({
           at: i - 1,
           type: "floor",
+          kind,
+          up,
           text: `Take the ${kind} ${up ? "up" : "down"} to floor ${b.floor}`,
           point: a,
         });
-        totalM += CONNECTOR_COST[kind] ? CONNECTOR_COST[kind](1) : 15;
         continue;
       }
       const d = Math.hypot(b.x - a.x, b.y - a.y);
@@ -201,7 +210,7 @@ export class Navigator {
           instructions.push({
             at: i,
             type: "turn",
-            text: `Turn ${turn} in ${Math.round(d)} meters`,
+            text: `Turn ${turn} in ${Math.round(d)} ${Math.round(d) === 1 ? "meter" : "meters"}`,
             short: `Turn ${turn}`,
             point: b,
           });

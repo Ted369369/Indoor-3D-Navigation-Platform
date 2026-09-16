@@ -1,6 +1,5 @@
 /*
- * Chat intent engine.
- * Maps free-text queries ("c language", "I want to study Qing dynasty
+ * Search: maps free-text queries ("c language", "I want to study Qing dynasty
  * history", "where can I self-study?") to navigation targets.
  *
  * The word list lives in each library's model file (`keywords`, `intents`,
@@ -84,7 +83,7 @@ export class IntentEngine {
     if (hit.intent) {
       const spec = this.intents[hit.intent];
       if (!spec) return { kind: "unknown", reply: this._unknownReply() };
-      return { kind: "nearest", candidates: spec.candidates, lead: spec.lead, term: hit.t };
+      return { kind: "nearest", candidates: spec.candidates, lead: spec.lead, term: hit.t, intent: hit.intent };
     }
     const zone = this.zones[hit.zone];
     if (!zone) return { kind: "unknown", reply: this._unknownReply() };
@@ -93,6 +92,7 @@ export class IntentEngine {
       kind: "zone",
       zoneId: hit.zone,
       term: hit.t,
+      note: hit.note || "",
       reply: `"${cap(hit.t)}" is in the ${zone.name} on floor ${zone.floor}.${note} Starting navigation.`,
     };
   }
@@ -113,6 +113,8 @@ export class IntentEngine {
       if (out.length >= limit) return out;
     }
     for (const r of this.fuse.search(q).slice(0, limit)) {
+      // only lean on fuzzy matches when the typed text found little on its own
+      if (out.length && r.score > 0.2) break;
       if (!seen.has(r.item.t)) {
         seen.add(r.item.t);
         out.push({ label: r.item.t, term: r.item.t });
