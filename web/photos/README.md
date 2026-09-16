@@ -14,8 +14,9 @@ web/photos/1F-A.jpg       Learning e-Garden
 web/photos/5F-C.jpg       Science books
 ```
 
-The ids are the `id` fields in `../data/map_model.json`. The app loads
-`photos/<ZONE-ID>.jpg` and shows a plain coloured box if there's no file. If you
+The ids are the `id` fields in `../data/map_model.json` (Taipei) and
+`../data/yorba_linda.json` (Yorba Linda). The app loads `photos/<ZONE-ID>.jpg`
+on the place card and simply leaves the photo out if there's no file. If you
 want a different file name or an external URL, add a `"photo"` field to that
 zone in `map_model.json`.
 

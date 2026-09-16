@@ -12,8 +12,8 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { Line2 } from "three/addons/lines/Line2.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
-import { categoryOf, iconOf, AMENITY_KINDS } from "./categories.js?v=maps3";
-import { iconPath } from "./icons.js?v=maps3";
+import { categoryOf, iconOf, AMENITY_KINDS } from "./categories.js?v=maps4";
+import { iconPath } from "./icons.js?v=maps4";
 
 const EXPLODE_FACTOR = 2.4;   // vertical spacing multiplier in the all-floors view
 const SLAB = 0.3;             // floor plate thickness

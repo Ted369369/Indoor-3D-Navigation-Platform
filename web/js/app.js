@@ -2,14 +2,14 @@
  * App: first-run setup, search, place cards, directions, friends and settings
  * around the 3D map. MQTT and GPS live in net.js, routing in nav.js.
  */
-import { MapScene } from "./map3d.js?v=maps3";
-import { Navigator } from "./nav.js?v=maps3";
-import { IntentEngine } from "./intent.js?v=maps3";
-import { Speaker, Listener, Guidance } from "./voice.js?v=maps3";
-import { Bus, GpsPublisher } from "./net.js?v=maps3";
-import { Social } from "./supa.js?v=maps3";
-import { icon, OUTLINE, FILLED } from "./icons.js?v=maps3";
-import { categoryOf, iconOf, AMENITY_KINDS } from "./categories.js?v=maps3";
+import { MapScene } from "./map3d.js?v=maps4";
+import { Navigator } from "./nav.js?v=maps4";
+import { IntentEngine } from "./intent.js?v=maps4";
+import { Speaker, Listener, Guidance } from "./voice.js?v=maps4";
+import { Bus, GpsPublisher } from "./net.js?v=maps4";
+import { Social } from "./supa.js?v=maps4";
+import { icon, OUTLINE, FILLED } from "./icons.js?v=maps4";
+import { categoryOf, iconOf, AMENITY_KINDS } from "./categories.js?v=maps4";
 
 const CFG = window.NAV_CONFIG;
 const $ = (id) => document.getElementById(id);
@@ -390,7 +390,7 @@ async function startCore(opts) {
   });
   gps.addEventListener("error", (e) => {
     updateGpsDot(null);
-    toast(`GPS: ${e.detail}`, "warn");
+    toast(e.detail ? `GPS: ${e.detail}` : "Couldn't get a GPS position.", "warn");
   });
   gps.start();
 
@@ -782,16 +782,11 @@ function openPlace(zone, { note = "" } = {}) {
   $("zoneDesc").hidden = !$("zoneDesc").textContent;
 
   // Real photo: an explicit zone.photo, else the drop-in convention
-  // web/photos/<ZONE-ID>.jpg. Missing files show a tinted placeholder.
+  // web/photos/<ZONE-ID>.jpg. The photo area only shows once one loads.
   const img = $("zonePhotoImg");
-  const ph = $("zonePhotoPlaceholder");
-  ph.style.background = cat.fill;
-  ph.style.color = cat.color;
-  ph.innerHTML = icon(iconOf(zone), { filled: true });
-  img.hidden = true;
-  ph.hidden = false;
-  img.onload = () => { img.hidden = false; ph.hidden = true; };
-  img.onerror = () => { img.hidden = true; ph.hidden = false; };
+  $("placePhoto").hidden = true;
+  img.onload = () => { if (state.place === zone) $("placePhoto").hidden = false; };
+  img.onerror = () => { $("placePhoto").hidden = true; };
   img.alt = zone.name;
   img.src = zone.photo || `photos/${encodeURIComponent(zone.id)}.jpg`;
 
@@ -826,8 +821,7 @@ function openFriend(fuid) {
   $("zoneFloor").textContent = f.pos ? `Friend · Floor ${f.pos.floor}` : "Friend · no position right now";
   $("placeNote").hidden = true;
   $("zoneDesc").hidden = true;
-  $("zonePhotoImg").hidden = true;
-  $("zonePhotoPlaceholder").hidden = true;
+  $("placePhoto").hidden = true;
   $("zoneGoBtn").hidden = !f.pos;
   $("zoneGoBtn").onclick = () => goToFriend(fuid);
   $("btnShowOnMap").onclick = () => {

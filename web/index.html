@@ -8,7 +8,7 @@
   <meta name="description" content="Find your way around a library on a 3D map, using your phone's GPS and a small floor sensor." />
   <title>Library Nav</title>
   <link rel="icon" href="img/icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="css/styles.css?v=maps3" />
+  <link rel="stylesheet" href="css/styles.css?v=maps4" />
   <script>
     // ES modules and fetch() don't run from file://, so explain instead of
     // leaving a blank page.
@@ -128,9 +128,8 @@
           <button id="btnShowOnMap" class="btn tonal"><svg class="ic" data-icon="location_on"></svg>Show on map</button>
         </div>
         <p id="placeNote" class="place-note" hidden></p>
-        <figure class="place-photo">
-          <img id="zonePhotoImg" hidden alt="" />
-          <div id="zonePhotoPlaceholder" class="photo-empty"></div>
+        <figure id="placePhoto" class="place-photo" hidden>
+          <img id="zonePhotoImg" alt="" />
         </figure>
         <p id="zoneDesc" class="place-desc"></p>
       </div>
@@ -290,6 +289,6 @@
   <div id="announcer" class="sr-only" aria-live="assertive"></div>
   <div id="toast" role="status"></div>
 
-  <script type="module" src="js/app.js?v=maps3"></script>
+  <script type="module" src="js/app.js?v=maps4"></script>
 </body>
 </html>

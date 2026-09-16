@@ -339,11 +339,6 @@ button.row:hover { background: var(--surface-2); }
   aspect-ratio: 16 / 9; max-width: 100%; background: var(--surface-2);
 }
 .place-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.photo-empty {
-  width: 100%; height: 100%; display: grid; place-items: center;
-  color: rgba(0, 0, 0, 0.35); font-size: 13px;
-}
-.photo-empty .ic { width: 44px; height: 44px; opacity: 0.55; }
 .place-desc { margin-top: 12px; color: var(--text-2); font-size: 15px; }
 
 /* route */
@@ -420,7 +415,7 @@ button.row:hover { background: var(--surface-2); }
 }
 .radio-row input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--blue); flex: none; }
 .radio-row b { display: block; font-weight: 600; }
-.coords { border: 0; padding: 0; margin: 14px 0 0; }
+.coords { border: 0; padding: 0; margin: 14px 0 0; min-width: 0; }
 .coords legend { font-size: 14px; font-weight: 600; padding: 0; }
 .coords .btn.text { margin-left: -10px; }
 #settingsForm .btn.block { margin-top: 20px; }
@@ -555,6 +550,14 @@ body.blind .fab { height: 54px; }
 body.blind .row .row-title { font-size: 17px; }
 body.blind .nb-main { font-size: 23px; }
 body.blind .btn { height: 52px; font-size: 17px; }
+
+/* ------------------------------------------------------------ tablets */
+
+@media (min-width: 600px) and (max-width: 899px) {
+  .sheet, .panel { left: calc(50% - 280px); right: auto; width: 560px; }
+  .top { left: calc(50% - 280px); right: auto; width: 560px; }
+  .nav-banner { left: calc(50% - 280px); right: auto; width: 560px; }
+}
 
 /* ------------------------------------------------------------ wide screens */
 
