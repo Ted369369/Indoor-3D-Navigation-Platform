@@ -12,26 +12,57 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { Line2 } from "three/addons/lines/Line2.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
-import { categoryOf, iconOf, AMENITY_KINDS } from "./categories.js?v=maps4";
-import { iconPath } from "./icons.js?v=maps4";
+import { categoryOf, iconOf, AMENITY_KINDS } from "./categories.js?v=set1";
+import { iconPath } from "./icons.js?v=set1";
 
-const EXPLODE_FACTOR = 2.4;   // vertical spacing multiplier in the all-floors view
+const EXPLODE_FACTOR = 2.4;   // default vertical spacing multiplier in the all-floors view
 const SLAB = 0.3;             // floor plate thickness
 const OUTER_WALL = 1.5;       // cut-away height of the building's outside wall
 const ROOM_WALL = 0.75;       // cut-away height of the walls around each room
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans TC", "Microsoft JhengHei", sans-serif';
-const BLUE = "#1a66d2";
+
+// colours that change with the light and dark themes
+const PALETTE = {
+  light: {
+    slab: 0xfbfbfc, outer: 0xc3cad2, wall: 0xdde2e8, zoneBase: null,
+    pill: "#ffffff", pillText: "#1f2328", shadow: "rgba(20, 30, 45, 0.22)",
+    sky: 0xffffff, ground: 0xd5dbe1, hemi: 1.55, sun: 0.85,
+  },
+  dark: {
+    slab: 0x2b3139, outer: 0x4a535e, wall: 0x3a424c, zoneBase: "#2e343c",
+    pill: "#262c33", pillText: "#e7eaee", shadow: "rgba(0, 0, 0, 0.55)",
+    sky: 0xffffff, ground: 0x3a4048, hemi: 1.25, sun: 0.6,
+  },
+};
 
 export class MapScene {
-  constructor(container, model, { onZoneClick } = {}) {
+  /**
+   * opts: onZoneClick, dark, accent, uiScale, labelMode ("names" | "icons" | "off"),
+   * reduceMotion, viewMode ("3d" | "2d"), showAccuracy, showFriends,
+   * floorSpacing (multiplier), quality ("saver" | "balanced" | "sharp"), followSelf
+   */
+  constructor(container, model, opts = {}) {
     this.model = model;
-    this.onZoneClick = onZoneClick;
+    this.onZoneClick = opts.onZoneClick;
     this.W = model.site.width;
     this.D = model.site.depth;
     this.floorZ = Object.fromEntries(model.site.floors.map((f) => [String(f.level), f.z]));
     this.exploded = false;
     this.focusLevel = "all";
-    this.followSelf = true;
+    this.followSelf = opts.followSelf !== false;
+    this.dark = !!opts.dark;
+    this.accent = opts.accent || "#1a66d2";
+    this.uiScale = opts.uiScale || 1;
+    this.labelMode = opts.labelMode || "names";
+    this.reduceMotion = !!opts.reduceMotion;
+    this.viewMode = opts.viewMode || "3d";
+    this.showAccuracy = opts.showAccuracy !== false;
+    this.showFriends = opts.showFriends !== false;
+    this.explodeFactor = opts.floorSpacing || EXPLODE_FACTOR;
+    this.quality = opts.quality || "balanced";
+    this.slabMats = [];
+    this.outerMats = [];
+    this.wallMats = [];
 
     this.markers = new Map();   // uid -> {group, target, self, pos, ...}
     this.zoneMeshes = new Map();
@@ -51,7 +82,8 @@ export class MapScene {
   _initRenderer(container) {
     this.container = container;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    this.pixelRatio = Math.min(devicePixelRatio, 2);
+    this.pixelRatio = this._pixelCap();
+    this.frameInterval = this.quality === "saver" ? 1000 / 30 : 0;
     this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
     container.appendChild(this.renderer.domElement);
@@ -73,11 +105,14 @@ export class MapScene {
     this.controls.maxDistance = 190 * this.span;
     this.controls.screenSpacePanning = false;
     this.controls.addEventListener("start", () => { this._camTween = null; });
+    this._applyControls();
 
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0xd5dbe1, 1.55));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.85);
-    sun.position.set(-30, 80, 45);
-    this.scene.add(sun);
+    const pal = this._pal();
+    this.hemi = new THREE.HemisphereLight(pal.sky, pal.ground, pal.hemi);
+    this.scene.add(this.hemi);
+    this.sun = new THREE.DirectionalLight(0xffffff, pal.sun);
+    this.sun.position.set(-30, 80, 45);
+    this.scene.add(this.sun);
 
     // Resize handling: ResizeObserver where it works, window events as backup,
     // and a per-frame check in the render loop (some embedded browsers never
@@ -161,7 +196,12 @@ export class MapScene {
 
   _buildFloors() {
     this.floorGroups = {};
-    const slabMat = () => new THREE.MeshLambertMaterial({ color: 0xfbfbfc, transparent: true, opacity: 1 });
+    const pal = this._pal();
+    const slabMat = () => {
+      const m = new THREE.MeshLambertMaterial({ color: pal.slab, transparent: true, opacity: 1 });
+      this.slabMats.push(m);
+      return m;
+    };
     for (const [level, floor] of Object.entries(this.model.floors)) {
       const group = new THREE.Group();
       group.userData.level = level;
@@ -178,9 +218,9 @@ export class MapScene {
       // outside wall, cut away low so you can see in
       const outer = this._wallGeometry(floor.outline, OUTER_WALL, 0.35, 0);
       if (outer) {
-        const mesh = new THREE.Mesh(outer, new THREE.MeshLambertMaterial({
-          color: 0xc3cad2, transparent: true, opacity: 1,
-        }));
+        const mat = new THREE.MeshLambertMaterial({ color: pal.outer, transparent: true, opacity: 1 });
+        this.outerMats.push(mat);
+        const mesh = new THREE.Mesh(outer, mat);
         mesh.userData.baseOpacity = 1;
         group.add(mesh);
       }
@@ -190,7 +230,7 @@ export class MapScene {
         const cat = categoryOf(zone);
         const outdoor = zone.kind === "outdoor";
         const mat = new THREE.MeshLambertMaterial({
-          color: new THREE.Color(cat.fill),
+          color: this._zoneFill(cat),
           emissive: new THREE.Color(cat.color),
           emissiveIntensity: 0,
           transparent: true,
@@ -200,7 +240,7 @@ export class MapScene {
         // amenities often sit inside a bigger room; lift them a touch so the
         // two surfaces don't flicker against each other
         mesh.position.y = AMENITY_KINDS.has(zone.kind) ? 0.03 : 0.01;
-        mesh.userData = { zoneId: zone.id, level, baseOpacity: 1 };
+        mesh.userData = { zoneId: zone.id, level, baseOpacity: 1, cat };
         this.zoneMeshes.set(zone.id, mesh);
         group.add(mesh);
 
@@ -211,15 +251,162 @@ export class MapScene {
         if (!zone.noLabel) this._addLabels(group, zone);
       }
       if (roomWalls.length) {
-        const walls = new THREE.Mesh(mergeGeometries(roomWalls), new THREE.MeshLambertMaterial({
-          color: 0xdde2e8, transparent: true, opacity: 1,
-        }));
+        const wallMat = new THREE.MeshLambertMaterial({ color: pal.wall, transparent: true, opacity: 1 });
+        this.wallMats.push(wallMat);
+        const walls = new THREE.Mesh(mergeGeometries(roomWalls), wallMat);
         walls.userData.baseOpacity = 1;
         group.add(walls);
       }
     }
     this._applyFloorLayout();
     this._frame(false);
+  }
+
+  /* ------------------------------------------------ settings ------------- */
+  _pal() {
+    return this.dark ? PALETTE.dark : PALETTE.light;
+  }
+
+  /** The accent, a little lighter on the dark map so it stands out. */
+  _accentColor() {
+    const c = new THREE.Color(this.accent);
+    return this.dark ? c.lerp(new THREE.Color(0xffffff), 0.2) : c;
+  }
+
+  _zoneFill(cat) {
+    const base = this._pal().zoneBase;
+    return base ? new THREE.Color(base).lerp(new THREE.Color(cat.color), 0.3) : new THREE.Color(cat.fill);
+  }
+
+  _pixelCap() {
+    const dpr = window.devicePixelRatio || 1;
+    return this.quality === "saver" ? 1 : this.quality === "sharp" ? Math.min(dpr, 2) : Math.min(dpr, 1.5);
+  }
+
+  _labelShown(when, single) {
+    if (this.labelMode === "off") return false;
+    if (this.labelMode === "icons") return when !== "floor";
+    return when === "both" || (when === "floor") === single;
+  }
+
+  /** 3D: drag to turn the map. 2D: straight down, drag to move it like a paper map. */
+  _applyControls() {
+    const flat = this.viewMode === "2d";
+    this.controls.minPolarAngle = 0;
+    this.controls.maxPolarAngle = flat ? 0.03 : Math.PI * 0.44;
+    this.controls.touches = {
+      ONE: flat ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE,
+      TWO: flat ? THREE.TOUCH.DOLLY_ROTATE : THREE.TOUCH.DOLLY_PAN,
+    };
+    this.controls.mouseButtons = {
+      LEFT: flat ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: flat ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN,
+    };
+  }
+
+  setTheme(dark) {
+    if (this.dark === !!dark) return;
+    this.dark = !!dark;
+    const pal = this._pal();
+    for (const m of this.slabMats) m.color.set(pal.slab);
+    for (const m of this.outerMats) m.color.set(pal.outer);
+    for (const m of this.wallMats) m.color.set(pal.wall);
+    for (const mesh of this.zoneMeshes.values()) mesh.material.color.copy(this._zoneFill(mesh.userData.cat));
+    this.hemi.groundColor.set(pal.ground);
+    this.hemi.intensity = pal.hemi;
+    this.sun.intensity = pal.sun;
+    this._rebuildLabels();
+    this._rebuildMarkers();
+    if (this.activeRoutePoints) this._buildPathMesh(this.activeRoutePoints);
+  }
+
+  setAccent(hex) {
+    if (this.accent === hex) return;
+    this.accent = hex;
+    this._rebuildMarkers();
+    if (this.activeRoutePoints) this._buildPathMesh(this.activeRoutePoints);
+  }
+
+  /** Size of labels, markers and signs, following the app's text size. */
+  setUiScale(k) {
+    this.uiScale = k;
+    for (const s of this.labelSprites) this._sizeSprite(s);
+    for (const m of this.markers.values()) m.sprites?.forEach((s) => this._sizeSprite(s));
+    for (const s of this.pathSigns || []) this._sizeSprite(s);
+    if (this.pin) this._sizeSprite(this.pin);
+    this._labelsDirty = true;
+  }
+
+  setLabelMode(mode) {
+    this.labelMode = mode;
+    this._applyVisibility();
+  }
+
+  setReduceMotion(on) {
+    this.reduceMotion = !!on;
+  }
+
+  setViewMode(mode) {
+    this.viewMode = mode;
+    this._applyControls();
+    if (this.padding) this.fitView();
+  }
+
+  setShowAccuracy(on) {
+    this.showAccuracy = !!on;
+  }
+
+  setShowFriends(on) {
+    this.showFriends = !!on;
+    this._applyVisibility();
+  }
+
+  setFloorSpacing(k) {
+    this.explodeFactor = k;
+    if (!this.exploded) return;
+    this._applyFloorLayout();
+    this._applyVisibility();
+    if (this.padding) this.fitView();
+  }
+
+  setQuality(q) {
+    this.quality = q;
+    this.pixelRatio = this._pixelCap();
+    this.frameInterval = q === "saver" ? 1000 / 30 : 0;
+    this.renderer.setPixelRatio(this.pixelRatio);
+    if (this._viewW) this.renderer.setSize(this._viewW, this._viewH);
+  }
+
+  _rebuildLabels() {
+    for (const s of this.labelSprites) {
+      s.parent?.remove(s);
+      s.material.map?.dispose();
+      s.material.dispose();
+    }
+    this.labelSprites = [];
+    for (const [level, floor] of Object.entries(this.model.floors)) {
+      for (const zone of floor.zones) {
+        if (!zone.noLabel) this._addLabels(this.floorGroups[level], zone);
+      }
+    }
+    this._applyVisibility();
+    // start new labels at their settled state instead of flashing in and out
+    this._resolveLabelCollisions();
+    for (const s of this.labelSprites) {
+      s.material.opacity = s.userData.fade;
+      s.material.visible = s.userData.fade > 0;
+    }
+  }
+
+  _rebuildMarkers() {
+    for (const [uid, m] of [...this.markers]) {
+      const at = m.group.position.clone();
+      this.removeMarker(uid);
+      if (!m.pos) continue;
+      this.updateMarker(uid, m.pos, { self: m.self, name: m.name });
+      this.markers.get(uid).group.position.copy(at);
+    }
   }
 
   /* ------------------------------------------------ labels --------------- */
@@ -268,11 +455,12 @@ export class MapScene {
   _badgeSprite(zone) {
     const cat = categoryOf(zone);
     const size = 30;
+    const pal = this._pal();
     const { cvs, ctx } = this._canvas(size, size);
-    ctx.shadowColor = "rgba(20, 30, 45, 0.28)";
+    ctx.shadowColor = pal.shadow;
     ctx.shadowBlur = 4;
     ctx.shadowOffsetY = 1;
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = pal.pill;
     ctx.beginPath(); ctx.arc(15, 15, 12, 0, Math.PI * 2); ctx.fill();
     ctx.shadowColor = "transparent";
     ctx.fillStyle = cat.color;
@@ -295,12 +483,13 @@ export class MapScene {
     }
     const textW = Math.ceil(measure.measureText(name).width);
     const W = 6 + 20 + 6 + textW + 10, H = 32, pad = 3;
+    const pal = this._pal();
     const { cvs, ctx } = this._canvas(W + pad * 2, H + pad * 2);
     ctx.translate(pad, pad);
-    ctx.shadowColor = "rgba(20, 30, 45, 0.22)";
+    ctx.shadowColor = pal.shadow;
     ctx.shadowBlur = 5;
     ctx.shadowOffsetY = 1;
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = pal.pill;
     roundRect(ctx, 0, 3, W, H - 6, (H - 6) / 2);
     ctx.fill();
     ctx.shadowColor = "transparent";
@@ -308,7 +497,7 @@ export class MapScene {
     ctx.beginPath(); ctx.arc(6 + 10, H / 2, 10, 0, Math.PI * 2); ctx.fill();
     this._drawIcon(ctx, iconOf(zone), 16, H / 2, 13, "#ffffff");
     ctx.font = font;
-    ctx.fillStyle = "#1f2328";
+    ctx.fillStyle = pal.pillText;
     ctx.textBaseline = "middle";
     ctx.fillText(name, 6 + 20 + 6, H / 2 + 0.5);
     return this._sprite(cvs, W + pad * 2, H + pad * 2);
@@ -332,7 +521,7 @@ export class MapScene {
 
   _sizeSprite(sprite) {
     if (!this._viewH) return;
-    const k = (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)) / this._viewH;
+    const k = (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)) / this._viewH * this.uiScale;
     const [w, h] = sprite.userData.px;
     sprite.scale.set(w * k, h * k, 1);
   }
@@ -348,7 +537,7 @@ export class MapScene {
       if (!s.visible || !s.parent?.visible) { s.userData.fade = 0; continue; }
       s.getWorldPosition(v).project(this.camera);
       if (v.z > 1 || Math.abs(v.x) > 1.2 || Math.abs(v.y) > 1.2) { s.userData.fade = 0; continue; }
-      const [w, h] = s.userData.px;
+      const w = s.userData.px[0] * this.uiScale, h = s.userData.px[1] * this.uiScale;
       const cx = (v.x + 1) / 2 * W, cy = (1 - v.y) / 2 * H;
       candidates.push({ s, x0: cx - w / 2 + 3, x1: cx + w / 2 - 3, y0: cy - h / 2 + 5, y1: cy + h / 2 - 5 });
     }
@@ -357,7 +546,7 @@ export class MapScene {
     for (const b of blockers) {
       if (!b.visible || !b.parent?.visible) continue;
       b.getWorldPosition(v).project(this.camera);
-      const [w, h] = b.userData.px;
+      const w = b.userData.px[0] * this.uiScale, h = b.userData.px[1] * this.uiScale;
       const cx = (v.x + 1) / 2 * W, cy = (1 - v.y) / 2 * H;
       // signs and the pin hang above their anchor point
       placed.push({ x0: cx - w / 2, x1: cx + w / 2, y0: cy - h, y1: cy });
@@ -375,7 +564,7 @@ export class MapScene {
   /* ------------------------------------------- layout & focus ------------ */
   displayY(level, offset = 0) {
     const z = this.floorZ[String(level)];
-    return (this.exploded ? z * EXPLODE_FACTOR : z) + offset;
+    return (this.exploded ? z * this.explodeFactor : z) + offset;
   }
 
   _applyFloorLayout() {
@@ -434,7 +623,9 @@ export class MapScene {
     const tanV = (t * freeH) / this._viewH;
     const tanH = (t * freeW) / this._viewH;
     // a lower angle for the whole stack, so the floors separate on screen
-    const elevation = this.focusLevel === "all" ? THREE.MathUtils.degToRad(30) : Math.atan2(58, 50);
+    // straight down in the flat view (a hair off, so the controls keep their heading)
+    const elevation = this.viewMode === "2d" ? THREE.MathUtils.degToRad(89)
+      : this.focusLevel === "all" ? THREE.MathUtils.degToRad(30) : Math.atan2(58, 50);
     // on a tall screen, look along the building's long side so it fills the height
     const turn = freeH / freeW > 1.15 && this.W / this.D > 1.25;
     const across = turn ? this.D : this.W;
@@ -521,7 +712,7 @@ export class MapScene {
       if (!show) continue;
       group.traverse((obj) => {
         const when = obj.userData?.when;
-        if (when) obj.visible = when === "both" || (when === "floor") === single;
+        if (when) obj.visible = this._labelShown(when, single);
         const mat = obj.material;
         if (mat && obj.userData?.baseOpacity !== undefined) {
           mat.opacity = obj.userData.baseOpacity * opacityScale;
@@ -530,7 +721,7 @@ export class MapScene {
       });
     }
     for (const m of this.markers.values()) {
-      if (m.pos) m.group.visible = !set || set.has(String(m.pos.floor));
+      if (m.pos) m.group.visible = (m.self || this.showFriends) && (!set || set.has(String(m.pos.floor)));
     }
     if (this.pin) this.pin.visible = !!this.pinPoint && this._floorVisible(this.pinPoint.floor);
     this._applyPathVisibility();
@@ -554,8 +745,9 @@ export class MapScene {
       this.scene.add(m.group);
     }
     m.pos = pos;
+    m.name = name || m.name;
     m.target.copy(this._markerWorld(pos));
-    m.group.visible = this._floorVisible(pos.floor);
+    m.group.visible = (self || this.showFriends) && this._floorVisible(pos.floor);
     if (m.halo) {
       const acc = Math.min(18, Math.max(2, pos.q?.gpsAcc ?? 6));
       m.haloTarget = acc;
@@ -564,15 +756,16 @@ export class MapScene {
 
   _makeSelfMarker() {
     const group = new THREE.Group();
+    const accent = this._accentColor();
     const halo = new THREE.Mesh(
       new THREE.CircleGeometry(1, 48),
-      new THREE.MeshBasicMaterial({ color: BLUE, transparent: true, opacity: 0.13, depthWrite: false })
+      new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.13, depthWrite: false })
     );
     halo.rotation.x = -Math.PI / 2;
     halo.renderOrder = 5;
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(0.96, 1, 64),
-      new THREE.MeshBasicMaterial({ color: BLUE, transparent: true, opacity: 0.35, depthWrite: false })
+      new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.35, depthWrite: false })
     );
     ring.rotation.x = -Math.PI / 2;
     ring.renderOrder = 5;
@@ -582,7 +775,7 @@ export class MapScene {
     ctx.fillStyle = "#ffffff";
     ctx.beginPath(); ctx.arc(15, 15, 10, 0, Math.PI * 2); ctx.fill();
     ctx.shadowColor = "transparent";
-    ctx.fillStyle = BLUE;
+    ctx.fillStyle = "#" + accent.getHexString(THREE.SRGBColorSpace);
     ctx.beginPath(); ctx.arc(15, 15, 7, 0, Math.PI * 2); ctx.fill();
     const dot = this._sprite(cvs, 30, 30, { onTop: true });
     dot.position.y = 0.6;
@@ -601,11 +794,12 @@ export class MapScene {
     measure.font = font;
     const label = name.slice(0, 16);
     const W = 4 + 24 + 6 + Math.ceil(measure.measureText(label).width) + 10, H = 32;
+    const pal = this._pal();
     const { cvs, ctx } = this._canvas(W + 6, H + 6);
     ctx.translate(3, 3);
-    ctx.shadowColor = "rgba(20, 30, 45, 0.25)";
+    ctx.shadowColor = pal.shadow;
     ctx.shadowBlur = 5;
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = pal.pill;
     roundRect(ctx, 0, 2, W, H - 4, (H - 4) / 2);
     ctx.fill();
     ctx.shadowColor = "transparent";
@@ -618,19 +812,20 @@ export class MapScene {
     ctx.fillText((name.trim()[0] || "?").toUpperCase(), 16, H / 2 + 0.5);
     ctx.textAlign = "left";
     ctx.font = font;
-    ctx.fillStyle = "#1f2328";
+    ctx.fillStyle = pal.pillText;
     ctx.fillText(label, 4 + 24 + 6, H / 2 + 0.5);
     const tag = this._sprite(cvs, W + 6, H + 6, { onTop: true });
     tag.center.set(16 / (W + 6), 0.5); // anchor on the avatar, name trails right
     tag.position.y = 0.8;
     group.add(tag);
-    return { group, sprites: [tag], target: new THREE.Vector3(), self: false };
+    return { group, sprites: [tag], target: new THREE.Vector3(), self: false, name };
   }
 
   removeMarker(uid) {
     const m = this.markers.get(uid);
     if (m) {
       this.scene.remove(m.group);
+      disposeTree(m.group);
       this.markers.delete(uid);
     }
   }
@@ -703,7 +898,7 @@ export class MapScene {
       this.lineMaterials.push(mat);
       return line;
     };
-    part.add(make(0xffffff, 10, 6), make(new THREE.Color(BLUE), 6, 7));
+    part.add(make(this.dark ? 0x1f242b : 0xffffff, 10, 6), make(this._accentColor(), 6, 7));
 
     const run = { curve, pulses: [], part };
     const count = Math.max(2, Math.round(curve.getLength() / 5));
@@ -736,20 +931,22 @@ export class MapScene {
     const measure = document.createElement("canvas").getContext("2d");
     measure.font = font;
     const W = 6 + 22 + 7 + Math.ceil(measure.measureText(text).width) + 12, H = 34, pad = 3;
+    const pal = this._pal();
+    const accent = "#" + this._accentColor().getHexString(THREE.SRGBColorSpace);
     const { cvs, ctx } = this._canvas(W + pad * 2, H + pad * 2);
     ctx.translate(pad, pad);
-    ctx.shadowColor = "rgba(20, 30, 45, 0.3)";
+    ctx.shadowColor = pal.shadow;
     ctx.shadowBlur = 5;
     ctx.shadowOffsetY = 1;
-    ctx.fillStyle = up === null ? "#ffffff" : BLUE;
+    ctx.fillStyle = up === null ? pal.pill : accent;
     roundRect(ctx, 0, 2, W, H - 4, (H - 4) / 2);
     ctx.fill();
     ctx.shadowColor = "transparent";
-    ctx.fillStyle = up === null ? BLUE : "#ffffff";
+    ctx.fillStyle = up === null ? accent : "#ffffff";
     ctx.beginPath(); ctx.arc(6 + 11, H / 2, 11, 0, Math.PI * 2); ctx.fill();
-    this._drawIcon(ctx, iconName, 17, H / 2, 14, up === null ? "#ffffff" : BLUE);
+    this._drawIcon(ctx, iconName, 17, H / 2, 14, up === null ? "#ffffff" : accent);
     ctx.font = font;
-    ctx.fillStyle = up === null ? "#1f2328" : "#ffffff";
+    ctx.fillStyle = up === null ? pal.pillText : "#ffffff";
     ctx.textBaseline = "middle";
     ctx.fillText(text, 6 + 22 + 7, H / 2 + 0.5);
     const sign = this._sprite(cvs, W + pad * 2, H + pad * 2, { onTop: true });
@@ -798,6 +995,7 @@ export class MapScene {
   clearPath(keepRef = false) {
     if (this.pathGroup) {
       this.scene.remove(this.pathGroup);
+      disposeTree(this.pathGroup);
       this.pathGroup = null;
     }
     this.pathRuns = [];
@@ -832,31 +1030,38 @@ export class MapScene {
     let fpsWindowStart = performance.now();
     let lastCollision = 0;
     const lastCam = new THREE.Vector3();
+    let lastRender = 0;
     const loop = () => {
       requestAnimationFrame(loop);
       if (document.hidden) return; // save battery / GPU when backgrounded
+      const now = performance.now();
+      // battery saver: at most 30 frames a second
+      if (this.frameInterval && now - lastRender < this.frameInterval - 2) return;
+      lastRender = now;
       this._resize();
 
       // adaptive quality: if the device cannot hold ~25 fps, render fewer pixels
       frames++;
-      const now = performance.now();
       if (now - fpsWindowStart > 3000) {
         const fps = (frames * 1000) / (now - fpsWindowStart);
         frames = 0;
         fpsWindowStart = now;
-        if (fps < 25 && this.pixelRatio > 1) {
+        if (this.quality === "balanced" && fps < 25 && this.pixelRatio > 1) {
           this.pixelRatio = 1;
           this.renderer.setPixelRatio(1);
           this.renderer.setSize(this._viewW, this._viewH);
         }
       }
 
-      const t = clock.getElapsedTime();
+      const still = this.reduceMotion;
+      const t = still ? 0 : clock.getElapsedTime();
 
       for (const m of this.markers.values()) {
-        m.group.position.lerp(m.target, 0.12);
+        m.group.position.lerp(m.target, still ? 1 : 0.12);
         if (m.halo) {
-          m.haloSize += (m.haloTarget - m.haloSize) * 0.08;
+          m.halo.visible = this.showAccuracy;
+          m.ring.visible = this.showAccuracy && !still;
+          m.haloSize += (m.haloTarget - m.haloSize) * (still ? 1 : 0.08);
           m.halo.scale.setScalar(m.haloSize);
           const s = m.haloSize * (1 + ((t * 0.8) % 1) * 0.35);
           m.ring.scale.setScalar(s);
@@ -873,7 +1078,7 @@ export class MapScene {
       }
       if (this.highlightId) {
         const mesh = this.zoneMeshes.get(this.highlightId);
-        if (mesh) mesh.material.emissiveIntensity = 0.32 + 0.14 * Math.sin(t * 3.5);
+        if (mesh) mesh.material.emissiveIntensity = still ? 0.38 : 0.32 + 0.14 * Math.sin(t * 3.5);
       }
 
       // gentle camera follow of the self marker
@@ -884,15 +1089,16 @@ export class MapScene {
         this.controls.target.z += (goal.z - this.controls.target.z) * 0.01;
       }
       if (this._camTween) {
+        const k = still ? 1 : 0.08;
         const before = this.controls.target.clone();
-        this.controls.target.lerp(this._camTween.target, 0.08);
+        this.controls.target.lerp(this._camTween.target, k);
         if (this._camTween.position) {
-          this.camera.position.lerp(this._camTween.position, 0.08);
+          this.camera.position.lerp(this._camTween.position, k);
         } else {
           // move the camera with its target so the view angle stays the same
           this.camera.position.add(this.controls.target.clone().sub(before));
         }
-        if (performance.now() - this._camTween.start > 1500) this._camTween = null;
+        if (still || performance.now() - this._camTween.start > 1500) this._camTween = null;
       }
 
       this.controls.update();
@@ -909,7 +1115,7 @@ export class MapScene {
       for (const s of this.labelSprites) {
         const o = s.material.opacity;
         const goal = s.userData.fade;
-        if (o !== goal) s.material.opacity = Math.abs(o - goal) < 0.04 ? goal : o + (goal - o) * 0.25;
+        if (o !== goal) s.material.opacity = still || Math.abs(o - goal) < 0.04 ? goal : o + (goal - o) * 0.25;
         s.material.visible = s.material.opacity > 0;
       }
 
@@ -947,6 +1153,18 @@ function polyArea(poly) {
     a += x0 * y1 - x1 * y0;
   }
   return Math.abs(a) / 2;
+}
+
+/** Free the GPU memory behind a group that is being thrown away. */
+function disposeTree(root) {
+  root.traverse((obj) => {
+    obj.geometry?.dispose();
+    const mat = obj.material;
+    if (mat) {
+      mat.map?.dispose();
+      mat.dispose();
+    }
+  });
 }
 
 function roundRect(ctx, x, y, w, h, r) {

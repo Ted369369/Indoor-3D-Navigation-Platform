@@ -148,7 +148,8 @@ use. It gives back its slots as soon as it exits.
 
 ## Test mode and production mode
 
-Settings (the sliders button in the panel) has a **When to show my dot** choice:
+Settings (the sliders button in the panel), then **Location**, has a
+**When to show my dot** choice:
 
 - **Anywhere** (test mode, the default): your marker shows wherever you are,
   placed relative to where you started. Useful for demos away from the building.
@@ -166,7 +167,7 @@ library's model file (`web/data/map_model.json` for Taipei,
 
 The map has to know where the building is:
 
-1. Open the app, then Settings, then **Map calibration**.
+1. Open the app, then Settings, Location, **Map calibration**.
 2. Stand at the **north-west corner** of the building (top left of the drawn
    plan) and tap "Use my location". Do the same at the **north-east corner**
    (50 m along the top edge). You can also paste coordinates from Google Maps.

@@ -6,6 +6,7 @@
     "depth": 44,
     "floorHeight": 5.5,
     "walkSpeed": 1.2,
+    "units": "imperial",
     "geoAnchors": {
       "comment": "From the OpenStreetMap footprint (way 1111599863), north-up. origin = NW corner of the bounding box (0,0), xAxis = (98,0).",
       "origin": {

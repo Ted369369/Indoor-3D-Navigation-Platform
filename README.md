@@ -60,6 +60,13 @@ nearby (strongest signal first, ones already in use greyed out) and you tap
 the one in your hand. If you don't have a sensor, GPS-only mode works too; you
 pick your floor from a menu in the panel.
 
+Settings (the sliders button in the panel) covers the rest: light or dark
+theme, accent colour and text size; a 3D or flat map, room labels, floor
+spacing, meters or feet and a battery saver; step-free routes, which stairs to
+prefer, walking pace and automatic re-routing; the voice, its speed and volume;
+GPS smoothing and map calibration; and your name and avatar colour. Everything
+is stored on the phone, and there is a search box for finding a setting.
+
 ## Repository
 
 | Path | What's in it |

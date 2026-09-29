@@ -8,7 +8,25 @@
   <meta name="description" content="Find your way around a library on a 3D map, using your phone's GPS and a small floor sensor." />
   <title>Library Nav</title>
   <link rel="icon" href="img/icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="css/styles.css?v=maps4" />
+  <link rel="stylesheet" href="css/styles.css?v=set1" />
+  <script>
+    // theme, accent and text size before the first paint, so nothing flashes
+    // (the same tables live in js/app.js)
+    (function () {
+      try {
+        var s = JSON.parse(localStorage.getItem("libnav.settings") || "{}");
+        var root = document.documentElement;
+        var dark = s.theme === "dark" ||
+          (s.theme !== "light" && window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches);
+        root.setAttribute("data-theme", dark ? "dark" : "light");
+        var accents = { blue: "#1a66d2", teal: "#0f7f86", green: "#1e7f46",
+          purple: "#6a4bc4", orange: "#c4561a", pink: "#c23a73" };
+        if (accents[s.accent]) root.style.setProperty("--accent", accents[s.accent]);
+        var sizes = { s: 0.92, m: 1, l: 1.12, xl: 1.25 };
+        if (sizes[s.textSize]) root.style.setProperty("--ts", sizes[s.textSize]);
+      } catch (e) { /* private mode: defaults */ }
+    })();
+  </script>
   <script>
     // ES modules and fetch() don't run from file://, so explain instead of
     // leaving a blank page.
@@ -182,41 +200,25 @@
     </div>
   </aside>
 
-  <div id="settingsModal" class="panel" hidden>
-    <form id="settingsForm">
-      <div class="panel-head">
-        <h2>Settings</h2>
-        <button type="button" id="btnCloseSettings" class="icon-btn" aria-label="Close"><svg class="ic" data-icon="close"></svg></button>
-      </div>
-      <div class="panel-body">
-        <h3 class="section-title">When to show my dot</h3>
-        <label class="radio-row"><input type="radio" name="appMode" value="test" />
-          <span><b>Anywhere</b><span class="sub">Test mode. Handy for trying it out at home.</span></span></label>
-        <label class="radio-row"><input type="radio" name="appMode" value="production" />
-          <span><b>Only at the library</b><span class="sub">Hides your dot when you're more than 200 m away.</span></span></label>
+  <div id="settingsModal" class="panel settings" role="dialog" aria-label="Settings" hidden>
+    <div class="panel-head">
+      <button type="button" id="btnSettingsBack" class="icon-btn" aria-label="Back" hidden><svg class="ic" data-icon="arrow_back"></svg></button>
+      <h2 id="settingsTitle">Settings</h2>
+      <button type="button" id="btnCloseSettings" class="icon-btn" aria-label="Close"><svg class="ic" data-icon="close"></svg></button>
+    </div>
+    <div id="settingsBody" class="panel-body"></div>
+  </div>
 
-        <h3 class="section-title">Map calibration</h3>
-        <p class="sub">Tie two corners of the building to GPS. Stand at each corner and tap
-          "Use my location", or paste coordinates from Google Maps.</p>
-        <fieldset class="coords">
-          <legend>North-west corner</legend>
-          <div class="field-row">
-            <input id="originLat" type="number" step="any" placeholder="Latitude" required />
-            <input id="originLng" type="number" step="any" placeholder="Longitude" required />
-          </div>
-          <button type="button" id="btnUseHereOrigin" class="btn text small"><svg class="ic" data-icon="my_location"></svg>Use my location</button>
-        </fieldset>
-        <fieldset class="coords">
-          <legend id="xAxisLegend">North-east corner</legend>
-          <div class="field-row">
-            <input id="xLat" type="number" step="any" placeholder="Latitude" required />
-            <input id="xLng" type="number" step="any" placeholder="Longitude" required />
-          </div>
-          <button type="button" id="btnUseHereX" class="btn text small"><svg class="ic" data-icon="my_location"></svg>Use my location</button>
-        </fieldset>
-        <button type="submit" class="btn primary block">Save calibration</button>
+  <div id="confirmDialog" class="dialog-backdrop" hidden>
+    <div class="dialog" role="alertdialog" aria-labelledby="confirmTitle" aria-describedby="confirmText">
+      <span class="dialog-icon danger"><svg class="ic" data-icon="warning"></svg></span>
+      <h2 id="confirmTitle"></h2>
+      <p class="sub" id="confirmText"></p>
+      <div class="dialog-actions">
+        <button type="button" id="confirmCancel" class="btn plain">Cancel</button>
+        <button type="button" id="confirmOk" class="btn danger">OK</button>
       </div>
-    </form>
+    </div>
   </div>
 
   <!-- first run -->
@@ -289,6 +291,6 @@
   <div id="announcer" class="sr-only" aria-live="assertive"></div>
   <div id="toast" role="status"></div>
 
-  <script type="module" src="js/app.js?v=maps4"></script>
+  <script type="module" src="js/app.js?v=set1"></script>
 </body>
 </html>

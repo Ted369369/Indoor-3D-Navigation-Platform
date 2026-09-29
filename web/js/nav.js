@@ -40,6 +40,12 @@ export class Navigator {
     // legacy aliases so older callers keep working
     this.graphs.normal = this.graphs.central;
     this.graphs.accessible = this.graphs.elevator;
+    // the app swaps these for the user's units and walking pace
+    this.formatDistance = (m) => {
+      const r = Math.max(1, Math.round(m));
+      return `${r} ${r === 1 ? "meter" : "meters"}`;
+    };
+    this.walkSpeed = model.site.walkSpeed || 1.2;
     this.cores = new Set(
       model.connectors.map((c) => c.core || (c.accessible ? "elevator" : "central"))
     );
@@ -210,7 +216,8 @@ export class Navigator {
           instructions.push({
             at: i,
             type: "turn",
-            text: `Turn ${turn} in ${Math.round(d)} ${Math.round(d) === 1 ? "meter" : "meters"}`,
+            text: `Turn ${turn} in ${this.formatDistance(d)}`,
+            dist: d,
             short: `Turn ${turn}`,
             point: b,
           });
@@ -223,7 +230,7 @@ export class Navigator {
       text: `You have arrived at ${targetName}`,
       point: points[points.length - 1],
     });
-    const etaS = Math.round(walkM / (this.model.site.walkSpeed || 1.2) + (totalM - walkM));
+    const etaS = Math.round(walkM / this.walkSpeed + (totalM - walkM));
     return { instructions, totalM: Math.round(totalM), etaS };
   }
 

@@ -6,20 +6,17 @@
  * spoken and mirrored to an aria-live region.
  */
 
-export class Speaker {
+export class Speaker extends EventTarget {
   constructor(announcerEl) {
+    super();
     this.enabled = false;
     this.announcer = announcerEl;
-    this.voice = null;
-    if ("speechSynthesis" in window) {
-      const pick = () => {
-        const voices = speechSynthesis.getVoices();
-        this.voice =
-          voices.find((v) => v.lang === "en-US" && v.localService) ||
-          voices.find((v) => v.lang.startsWith("en")) || null;
-      };
-      pick();
-      speechSynthesis.onvoiceschanged = pick;
+    this.voiceName = ""; // "" = pick automatically
+    this.rate = 1;
+    this.volume = 1;
+    if (this.supported) {
+      // voices load late in some browsers; tell the settings screen when they arrive
+      speechSynthesis.addEventListener?.("voiceschanged", () => this.dispatchEvent(new Event("voices")));
     }
   }
 
@@ -27,14 +24,30 @@ export class Speaker {
     return "speechSynthesis" in window;
   }
 
-  speak(text, { interrupt = false } = {}) {
-    if (this.announcer) this.announcer.textContent = text; // screen readers
-    if (!this.enabled || !this.supported) return;
+  /** English voices the device offers. */
+  voices() {
+    if (!this.supported) return [];
+    return speechSynthesis.getVoices().filter((v) => v.lang?.toLowerCase().startsWith("en"));
+  }
+
+  _voice() {
+    const list = this.voices();
+    return list.find((v) => v.name === this.voiceName) ||
+      list.find((v) => v.lang === "en-US" && v.localService) ||
+      list[0] || null;
+  }
+
+  /** `force` speaks even when spoken directions are off (the settings test button). */
+  speak(text, { interrupt = false, force = false } = {}) {
+    if (this.announcer && !force) this.announcer.textContent = text; // screen readers
+    if ((!this.enabled && !force) || !this.supported) return;
     if (interrupt) speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    if (this.voice) u.voice = this.voice;
-    u.lang = "en-US";
-    u.rate = 1.0;
+    const voice = this._voice();
+    if (voice) u.voice = voice;
+    u.lang = voice?.lang || "en-US";
+    u.rate = this.rate;
+    u.volume = this.volume;
     speechSynthesis.speak(u);
   }
 
@@ -81,6 +94,10 @@ export class Guidance {
     this.speaker = speaker;
     this.onReroute = onReroute;
     this.blindMode = blindMode;
+    this.progressUpdates = false; // "N meters left" every 20 s, also on in blind mode
+    this.autoReroute = true;
+    this.vibrate = false;
+    this.formatDistance = (m) => `${Math.round(m)} meters`;
     this.route = null;
     this.spoken = new Set();
     this.offRouteSince = null;
@@ -93,7 +110,7 @@ export class Guidance {
     this.offRouteSince = null;
     const eta = Math.max(1, Math.round(route.etaS / 60));
     this.speaker.speak(
-      `Route started to ${route.targetName}. Distance ${route.totalM} meters, about ${eta} minute${eta > 1 ? "s" : ""}.`,
+      `Route started to ${route.targetName}. Distance ${this.formatDistance(route.totalM)}, about ${eta} minute${eta > 1 ? "s" : ""}.`,
       { interrupt: true }
     );
   }
@@ -105,6 +122,10 @@ export class Guidance {
 
   get active() {
     return !!this.route;
+  }
+
+  _buzz(pattern) {
+    if (this.vibrate && navigator.vibrate) navigator.vibrate(pattern);
   }
 
   /** Feed fused positions ({x, y, floor}); returns 'arrived' when done. */
@@ -119,32 +140,35 @@ export class Guidance {
       if (ins.type === "arrive" && d < 5) {
         this.spoken.add(ins);
         this.speaker.speak(ins.text, { interrupt: true });
+        this._buzz([200, 80, 200]);
         this.route = null;
         return "arrived";
       }
       if (ins.type === "floor" && d < 8) {
         this.spoken.add(ins);
         this.speaker.speak(ins.text);
+        this._buzz([120, 60, 120]);
       }
       if (ins.type === "turn" && d < 6) {
         this.spoken.add(ins);
         this.speaker.speak(ins.short || ins.text);
+        this._buzz(120);
       }
     }
 
     // periodic reassurance for blind users
     const now = Date.now();
-    if (this.blindMode && now - this.lastProgressAnnounce > 20000) {
+    if ((this.blindMode || this.progressUpdates) && now - this.lastProgressAnnounce > 20000) {
       this.lastProgressAnnounce = now;
       const last = this.route.points[this.route.points.length - 1];
       if (String(last.floor) === String(pos.floor)) {
-        const d = Math.round(Math.hypot(last.x - pos.x, last.y - pos.y));
-        if (d > 6) this.speaker.speak(`${d} meters remaining on this floor.`);
+        const d = Math.hypot(last.x - pos.x, last.y - pos.y);
+        if (d > 6) this.speaker.speak(`${this.formatDistance(d)} left on this floor.`);
       }
     }
 
     // off-route detection (same-floor drift beyond 15 m for 5 s)
-    if (offRouteDist > 15) {
+    if (this.autoReroute && offRouteDist > 15) {
       if (!this.offRouteSince) this.offRouteSince = now;
       else if (now - this.offRouteSince > 5000) {
         this.offRouteSince = null;

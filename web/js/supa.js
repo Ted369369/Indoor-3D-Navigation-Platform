@@ -38,6 +38,17 @@ export class Social extends EventTarget {
     return this.uid;
   }
 
+  /** Change your own display name or low-vision flag. Throws if the name is taken. */
+  async updateProfile(fields) {
+    const { error } = await this.db.from("profiles").update(fields).eq("id", this.uid);
+    if (error?.code === "23505") throw new Error("That name is already taken.");
+    if (error) throw new Error(error.message);
+  }
+
+  async signOut() {
+    await this.db.auth.signOut();
+  }
+
   async registerDevice(deviceId) {
     if (!deviceId) return;
     await this.db.from("devices").upsert({ id: deviceId, role: "user" }, { onConflict: "id" });

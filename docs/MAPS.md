@@ -11,7 +11,7 @@ which are guesses.
   `raw_picture/` and photos of the library's own floor guide.
 - The real building is rotated relative to north. The model is drawn north-up,
   so the GPS placement in the file is only approximate. Calibrate on site
-  (Settings, Map calibration) before relying on it.
+  (Settings, Location, Map calibration) before relying on it.
 
 ## Yorba Linda Public Library (`yorba_linda.json`)
 

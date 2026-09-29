@@ -2,14 +2,15 @@
  * App: first-run setup, search, place cards, directions, friends and settings
  * around the 3D map. MQTT and GPS live in net.js, routing in nav.js.
  */
-import { MapScene } from "./map3d.js?v=maps4";
-import { Navigator } from "./nav.js?v=maps4";
-import { IntentEngine } from "./intent.js?v=maps4";
-import { Speaker, Listener, Guidance } from "./voice.js?v=maps4";
-import { Bus, GpsPublisher } from "./net.js?v=maps4";
-import { Social } from "./supa.js?v=maps4";
-import { icon, OUTLINE, FILLED } from "./icons.js?v=maps4";
-import { categoryOf, iconOf, AMENITY_KINDS } from "./categories.js?v=maps4";
+import { MapScene } from "./map3d.js?v=set1";
+import { Navigator } from "./nav.js?v=set1";
+import { IntentEngine } from "./intent.js?v=set1";
+import { Speaker, Listener, Guidance } from "./voice.js?v=set1";
+import { Bus, GpsPublisher } from "./net.js?v=set1";
+import { Social } from "./supa.js?v=set1";
+import { icon, OUTLINE, FILLED } from "./icons.js?v=set1";
+import { categoryOf, iconOf, AMENITY_KINDS } from "./categories.js?v=set1";
+import { Settings, SettingsPage } from "./settings.js?v=set1";
 
 const CFG = window.NAV_CONFIG;
 const $ = (id) => document.getElementById(id);
@@ -28,7 +29,25 @@ const state = {
   geo: null, smoother: makeGpsSmoother(), // client-side GPS conversion + smoothing
 };
 
-let model, scene, nav, intent, speaker, listener, guidance, bus, gps, social;
+let model, scene, nav, intent, speaker, listener, guidance, bus, gps, social, settingsPage;
+
+const APP_VERSION = "2026.09";
+const settings = new Settings();
+
+// option tables for Settings (the accent and text sizes are repeated in the
+// small script at the top of index.html, which runs before this file)
+const ACCENTS = {
+  blue: { hex: "#1a66d2", label: "Blue" },
+  teal: { hex: "#0f7f86", label: "Teal" },
+  green: { hex: "#1e7f46", label: "Green" },
+  purple: { hex: "#6a4bc4", label: "Purple" },
+  orange: { hex: "#c4561a", label: "Orange" },
+  pink: { hex: "#c23a73", label: "Pink" },
+};
+const TEXT_SIZES = { s: 0.92, m: 1, l: 1.12, xl: 1.25 };
+const SPACING = { close: 1.7, normal: 2.4, wide: 3.2 };
+const PACE = { slow: 0.75, normal: 1, fast: 1.25 };
+const SMOOTHING = { responsive: 1.7, balanced: 1, steady: 0.55 };
 
 /* ------------------------------------------------------------ small helpers */
 const prefs = {
@@ -133,10 +152,9 @@ async function boot() {
   state.lastDeviceId = p.deviceId || ""; // preselect hint only - user still confirms
   state.mode = p.mode === "gps" ? "gps" : "esp";
   state.myFloor = String(p.myFloor || "1"); // checked against the model once it loads
-  state.stairPref = p.stairPref === "west" ? "west" : "central";
-  state.appMode = p.appMode === "production" ? "production" : "test";
-  $("blindToggle").checked = !!p.blind;
-  $("accessibleToggle").checked = !!p.accessible;
+  applyStartupSettings();
+  $("blindToggle").checked = settings.get("lowVision");
+  $("accessibleToggle").checked = settings.get("accessible");
   if (!social.enabled) {
     $("friendsSection").hidden = true;
     $("soloNote").hidden = false;
@@ -242,13 +260,14 @@ function renderLibraryList() {
 /** Load the chosen library's map model and build the 3D scene. */
 async function openLibrary(lib) {
   model = await (await fetch(lib.model, { cache: "no-cache" })).json();
-  scene = new MapScene($("scene"), model, { onZoneClick: onZoneTap });
+  scene = new MapScene($("scene"), model, sceneOptions());
   nav = new Navigator(model);
+  nav.formatDistance = (m) => fmtDist(m, { long: true });
+  applyPace();
   buildLevels();
   state.geo = null;
   state.smoother.reset();
   $("homeTitle").textContent = lib.name;
-  $("xAxisLegend").textContent = `North-east corner, ${model.site.width} m along the top edge`;
   prefs.set({ libraryId: lib.id });
 }
 
@@ -310,6 +329,8 @@ function renderDeviceList() {
 /* ----------------------------------------------------------- connect */
 async function startCore(opts) {
   Object.assign(state, opts);
+  settings.set("lowVision", !!opts.blind);
+  settings.set("accessible", !!opts.accessible);
 
   // ---- identity
   let extraKeywords = [];
@@ -323,21 +344,22 @@ async function startCore(opts) {
   }
   intent = new IntentEngine(model, extraKeywords);
   buildChips();
-  $("avatarInitial").textContent = initial(state.name);
-  $("btnProfile").style.background = personColor(state.name);
+  reflectAvatar();
 
   // ---- voice
-  let voiceOn = false;
-  try { voiceOn = JSON.parse(localStorage.getItem("libnav.voice") || "false"); } catch { /* ignore */ }
-  speaker.enabled = state.blind || voiceOn;
-  if (state.blind) document.body.classList.add("blind");
+  applyVoice();
+  speaker.enabled = settings.get("voice");
   reflectVoiceButton();
   guidance = new Guidance(speaker, { blindMode: state.blind, onReroute: reroute });
+  guidance.autoReroute = settings.get("reroute");
+  guidance.vibrate = settings.get("vibrate");
+  guidance.progressUpdates = settings.get("progressUpdates");
+  guidance.formatDistance = (m) => fmtDist(m, { long: true });
   listener = new Listener(
     (text) => { $("searchInput").value = text; submitSearch(text, { spoken: true }); },
     (on) => document.body.classList.toggle("listening", on)
   );
-  if (!listener.available) $("btnMic").hidden = true;
+  reflectMic();
 
   // ---- connectivity
   bus.connect(CFG, state.uid);
@@ -385,6 +407,7 @@ async function startCore(opts) {
   // ---- GPS
   gps = new GpsPublisher(bus, state.uid, CFG.gpsPublishHz, state.library.id);
   gps.addEventListener("fix", (e) => {
+    state.gpsAcc = e.detail.acc;
     updateGpsDot(e.detail.acc);
     showLocalGps(e.detail); // move the dot as you walk, engine or not
   });
@@ -402,8 +425,7 @@ async function startCore(opts) {
 /** Called once the user has explicitly chosen a mode (and sensor, if any). */
 function finalizeStart() {
   prefs.set({
-    name: state.name, blind: state.blind, accessible: state.accessible,
-    deviceId: state.deviceId || "", mode: state.mode, myFloor: state.myFloor,
+    name: state.name, deviceId: state.deviceId || "", mode: state.mode, myFloor: state.myFloor,
     libraryId: state.library.id,
   });
   publishPairing();
@@ -469,6 +491,8 @@ function buildLevels() {
 
 function focusFloor(level) {
   level = String(level);
+  // the flat view shows one floor at a time
+  if (level === "all" && settings.get("mapView") === "2d") level = currentFloor();
   // the whole stack is only readable with the floors pulled apart
   if ((level === "all") !== scene.exploded) scene.setExploded(level === "all");
   state.focus = level;
@@ -479,7 +503,9 @@ function focusFloor(level) {
 
 function reflectLevels() {
   const here = state.pos ? String(state.pos.floor) : state.mode === "gps" ? state.myFloor : null;
+  const flat = settings.get("mapView") === "2d";
   $("levels").querySelectorAll("button").forEach((b) => {
+    b.hidden = flat && b.dataset.floor === "all";
     b.classList.toggle("active", b.dataset.floor === state.focus);
     b.classList.toggle("here", b.dataset.floor === here);
   });
@@ -570,8 +596,7 @@ function wireSheetDrag() {
 function renderHome() {
   if (!nav) return;
   renderHomeSub();
-  const floor = state.focus !== "all" ? state.focus
-    : String(state.pos?.floor || (state.mode === "gps" ? state.myFloor : startPoint().floor));
+  const floor = state.focus !== "all" ? state.focus : currentFloor();
   $("placeListTitle").textContent = `On floor ${floor}`;
   const zones = Object.values(nav.zones)
     .filter((z) => String(z.floor) === floor && z.kind !== "staff" && !z.noLabel)
@@ -597,10 +622,10 @@ function renderHomeSub() {
   $("homeSub").textContent = text;
 }
 
-function placeRow(zone, { note = "", sub = "" } = {}) {
+function placeRow(zone, { note = "", sub = "", recent = false } = {}) {
   const dist = distanceText(zone);
   const row = el(`<button type="button" class="row">
-    ${badge(zone)}
+    ${recent ? `<span class="badge-icon muted">${icon("history")}</span>` : badge(zone)}
     <span class="row-text">
       <span class="row-title">${esc(zone.name)}</span>
       <span class="row-sub">${esc(sub || `${categoryOf(zone).label} · Floor ${zone.floor}`)}</span>
@@ -614,8 +639,7 @@ function placeRow(zone, { note = "", sub = "" } = {}) {
 function distanceText(zone) {
   if (!state.pos || String(state.pos.floor) !== String(zone.floor)) return "";
   const [cx, cy] = centroid(zone.poly);
-  const d = Math.hypot(cx - state.pos.x, cy - state.pos.y);
-  return `${Math.max(1, Math.round(d))} m`;
+  return fmtDist(Math.hypot(cx - state.pos.x, cy - state.pos.y));
 }
 
 /* ------------------------------------------------------------ chips */
@@ -649,7 +673,11 @@ function onSearchInput() {
   const q = $("searchInput").value.trim();
   $("btnClear").hidden = !q;
   if (!q) {
-    if (state.view === "results") showView("home", { open: false });
+    if (document.activeElement === $("searchInput") && renderRecent()) {
+      if (state.view !== "results") showView("results", { open: true });
+    } else if (state.view === "results") {
+      showView("home", { open: false });
+    }
     return;
   }
   renderResults(q);
@@ -712,7 +740,8 @@ function nearestOf(candidates) {
 function submitSearch(text, { spoken = false } = {}) {
   const query = text.trim();
   if (!query) return;
-  const auto = spoken || state.blind; // hands-free: start walking straight away
+  // hands-free, or the user asked for it: start walking straight away
+  const auto = spoken || state.blind || settings.get("autoStart");
 
   const friendQuery = query.toLowerCase().replace(/^(find|where is|where's|go to|navigate to)\s+/i, "");
   for (const [fuid, f] of state.friends) {
@@ -761,9 +790,45 @@ function clearSearch() {
   showView("home", { open: false });
 }
 
+/* ------------------------------------------------------------ recent */
+const recentKey = () => `libnav.recent.${state.library.id}`;
+function recentList() {
+  try { return JSON.parse(localStorage.getItem(recentKey()) || "[]"); } catch { return []; }
+}
+function rememberPlace(zone) {
+  if (!settings.get("recent")) return;
+  const list = [{ id: zone.id }, ...recentList().filter((r) => r.id !== zone.id)].slice(0, 8);
+  try { localStorage.setItem(recentKey(), JSON.stringify(list)); } catch { /* ignore */ }
+}
+function clearRecent() {
+  try { localStorage.removeItem(recentKey()); } catch { /* ignore */ }
+}
+/** Recent places in the results list; false if there are none to show. */
+function renderRecent() {
+  const zones = settings.get("recent") ? recentList().map((r) => nav.zones[r.id]).filter(Boolean) : [];
+  if (!zones.length) return false;
+  const box = $("resultList");
+  box.innerHTML = "";
+  const head = el(`<div class="list-head"><h3 class="section-title">Recent</h3>
+    <button type="button" class="link-btn">Clear</button></div>`);
+  head.querySelector("button").addEventListener("click", () => {
+    clearRecent();
+    showView("home", { open: false });
+  });
+  box.appendChild(head);
+  for (const z of zones) box.appendChild(placeRow(z, { recent: true }));
+  return true;
+}
+
 /* ------------------------------------------------------------ place */
+function placeMeta(zone) {
+  const dist = distanceText(zone);
+  return [categoryOf(zone).label, `Floor ${zone.floor}`, dist && `${dist} away`].filter(Boolean).join(" · ");
+}
+
 function openPlace(zone, { note = "" } = {}) {
   state.place = zone;
+  rememberPlace(zone);
   $("searchInput").value = zone.name;
   $("btnClear").hidden = true;
   $("btnBack").hidden = false;
@@ -774,8 +839,7 @@ function openPlace(zone, { note = "" } = {}) {
   const staff = zone.kind === "staff";
   $("placeBadge").outerHTML = `<span id="placeBadge" class="badge-icon lg" style="background:${cat.color}">${icon(iconOf(zone), { filled: true })}</span>`;
   $("zoneName").textContent = zone.name;
-  const dist = distanceText(zone);
-  $("zoneFloor").textContent = [cat.label, `Floor ${zone.floor}`, dist && `${dist} away`].filter(Boolean).join(" · ");
+  $("zoneFloor").textContent = placeMeta(zone);
   $("placeNote").hidden = !note;
   $("placeNote").textContent = note;
   $("zoneDesc").textContent = zone.desc || (staff ? "Staff only, not open to visitors." : "");
@@ -854,7 +918,9 @@ function setPosition(p) {
   if (floorChanged) {
     reflectLevels();
     // follow the dot to its floor unless the user is looking at something else
-    if ((state.route || !state.place) && state.focus !== "all") focusFloor(String(p.floor));
+    if (settings.get("autoFloor") && (state.route || !state.place) && state.focus !== "all") {
+      focusFloor(String(p.floor));
+    }
   }
   if (state.view === "home") renderHomeSub();
 
@@ -947,9 +1013,8 @@ function passesGeofence(fix) {
 
 function showAwayNotice(distanceM, radius) {
   const box = $("awayNotice");
-  const km = distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)} km` : `${Math.round(distanceM)} m`;
-  box.querySelector(".away-dist").textContent = km;
-  box.querySelector(".away-radius").textContent = `${radius} m`;
+  box.querySelector(".away-dist").textContent = fmtFar(distanceM);
+  box.querySelector(".away-radius").textContent = fmtDist(radius);
   box.hidden = false;
   if (state.view === "home") renderHomeSub();
 }
@@ -958,10 +1023,13 @@ function hideAwayNotice() {
   if (!box.hidden) box.hidden = true;
 }
 
-/** Switch between test and production modes; re-evaluate the current position. */
+/** Switch between test and production modes (the setting does the rest). */
 function setAppMode(mode) {
-  state.appMode = mode === "production" ? "production" : "test";
-  prefs.set({ appMode: state.appMode });
+  settings.set("appMode", mode === "production" ? "production" : "test");
+}
+
+function onAppModeChanged() {
+  state.appMode = settings.get("appMode");
   state.geo = null;            // production/test use different anchoring
   state.smoother.reset();
   hideAwayNotice();
@@ -980,16 +1048,18 @@ function setAppMode(mode) {
 function makeGpsSmoother() {
   let sx = null, sy = null, st = 0;
   return {
+    strength: 1, // above 1 follows new fixes faster, below 1 moves more calmly
     reset() { sx = null; sy = null; st = 0; },
     update(x, y, acc, now) {
       if (sx === null) { sx = x; sy = y; st = now; return [x, y]; }
       const dt = Math.max(0.05, (now - st) / 1000);
       st = now;
-      const gain = Math.min(0.6, Math.max(0.12, 15 / (acc + 15))); // trust good fixes more
+      const base = Math.min(0.6, Math.max(0.12, 15 / (acc + 15))); // trust good fixes more
+      const gain = Math.min(0.95, Math.max(0.05, base * this.strength));
       let nx = sx + gain * (x - sx);
       let ny = sy + gain * (y - sy);
       // cap correction to a plausible walking envelope for this interval
-      const maxStep = 2.0 * dt + acc * 0.15;
+      const maxStep = (2.0 * dt + acc * 0.15) * this.strength;
       const d = Math.hypot(nx - sx, ny - sy);
       if (d > maxStep) { const k = maxStep / d; nx = sx + (nx - sx) * k; ny = sy + (ny - sy) * k; }
       sx = nx; sy = ny;
@@ -1043,7 +1113,7 @@ function showLocalGps(fix) {
 
   // snap onto corridors once the map is calibrated (skip while auto-anchored,
   // where the frame isn't yet aligned to the building)
-  if (savedAnchors()) [x, y] = snapToGraph(floor, x, y);
+  if (savedAnchors() && settings.get("snapToPaths")) [x, y] = snapToGraph(floor, x, y);
 
   setPosition({ x, y, floor: Number(floor), q: { gpsAcc: fix.acc, mode: "local-gps" } });
 }
@@ -1135,7 +1205,7 @@ function renderRoute() {
   if (!r) return;
   const mins = Math.max(1, Math.round(r.etaS / 60));
   $("routeTime").textContent = `${mins} min`;
-  $("routeDist").textContent = `(${r.totalM} m)`;
+  $("routeDist").textContent = `(${fmtDist(r.totalM)})`;
   $("routeDest").textContent = state.pos
     ? `To ${r.targetName}`
     : `From ${startPoint().label || "the entrance"} to ${r.targetName}`;
@@ -1176,15 +1246,15 @@ function updateRouteProgress(pos) {
       remaining = Math.round(Math.hypot(last.x - pos.x, last.y - pos.y));
     }
   }
-  $("routeDist").textContent = `(${remaining} m)`;
+  $("routeDist").textContent = `(${fmtDist(remaining)})`;
 
   $("nbIcon").innerHTML = icon(stepIcon(current));
   const main = current.type === "turn" ? current.short : current.text;
   let sub = "";
   if (pos && current.point && current.type !== "arrive" &&
       String(current.point.floor) === String(pos.floor)) {
-    const d = Math.round(Math.hypot(current.point.x - pos.x, current.point.y - pos.y));
-    sub = current.type === "turn" ? `In ${d} m` : `${d} m ahead`;
+    const d = Math.hypot(current.point.x - pos.x, current.point.y - pos.y);
+    sub = current.type === "turn" ? `In ${fmtDist(d)}` : `${fmtDist(d)} ahead`;
   }
   const next = pending[1];
   if (next) sub = [sub, `then ${lowerFirst(next.short || next.text)}`].filter(Boolean).join(", ");
@@ -1201,12 +1271,11 @@ function toggleStairPref() {
     return;
   }
   if (!canSwitchStairs()) return;
-  state.stairPref = routeProfile() === "central" ? "west" : "central";
-  prefs.set({ stairPref: state.stairPref });
-  const label = `the ${(model.site.cores?.[state.stairPref] || state.stairPref).toLowerCase()}`;
+  const next = routeProfile() === "central" ? "west" : "central";
+  const label = `the ${(model.site.cores?.[next] || next).toLowerCase()}`;
   toast(`Now going via ${label}`, "ok");
   speaker.speak(`Now going via ${label}.`);
-  if (state.routeTarget) navigateTo(state.routeTarget);
+  settings.set("stairPref", next); // re-routes
 }
 
 function reroute() {
@@ -1332,8 +1401,7 @@ function goToFriend(fuid) {
 
 /* ============================================================ panels */
 function openProfile() {
-  $("meAvatar").textContent = initial(state.name);
-  $("meAvatar").style.background = personColor(state.name);
+  reflectAvatar();
   $("meName").textContent = state.name;
   $("meMode").textContent = (state.mode === "gps" ? "Phone GPS only" : `Sensor ${state.deviceId}`) +
     ` · ${state.library.name}`;
@@ -1341,14 +1409,9 @@ function openProfile() {
   $("profilePanel").hidden = false;
 }
 
-function openSettings() {
-  const a = savedAnchors() || model.site.geoAnchors;
-  $("originLat").value = a.origin.lat; $("originLng").value = a.origin.lng;
-  $("xLat").value = a.xAxis.lat; $("xLng").value = a.xAxis.lng;
-  const radio = document.querySelector(`input[name="appMode"][value="${state.appMode}"]`);
-  if (radio) radio.checked = true;
+function openSettings(section = null) {
   $("profilePanel").hidden = true;
-  $("settingsModal").hidden = false;
+  settingsPage.open(section);
 }
 
 function closePanels() {
@@ -1367,7 +1430,7 @@ function wireUi() {
   });
   $("searchInput").addEventListener("input", onSearchInput);
   $("searchInput").addEventListener("focus", () => {
-    if ($("searchInput").value.trim() && state.view !== "place") onSearchInput();
+    if (state.view !== "place") onSearchInput();
   });
   $("searchInput").addEventListener("keydown", (e) => {
     if (e.key === "Escape") clearSearch();
@@ -1388,19 +1451,9 @@ function wireUi() {
       return;
     }
     focusFloor(String(state.pos.floor));
-    scene.followSelf = true;
     scene.focusOn(state.pos);
   });
-  $("btnVoice").addEventListener("click", () => {
-    speaker.enabled = !speaker.enabled;
-    try { localStorage.setItem("libnav.voice", JSON.stringify(speaker.enabled)); } catch { /* ignore */ }
-    reflectVoiceButton();
-    if (speaker.enabled) {
-      speaker.speak("Directions will be read aloud.", { interrupt: true });
-    } else {
-      speaker.stop(); // cut off whatever is currently being spoken
-    }
-  });
+  $("btnVoice").addEventListener("click", () => settings.set("voice", !settings.get("voice")));
 
   $("myFloorSel").addEventListener("change", () => {
     state.myFloor = $("myFloorSel").value;
@@ -1418,8 +1471,14 @@ function wireUi() {
   // panels
   $("btnProfile").addEventListener("click", openProfile);
   $("btnCloseProfile").addEventListener("click", closePanels);
-  $("btnSettings").addEventListener("click", openSettings);
-  $("btnOpenSettings").addEventListener("click", openSettings);
+  settingsPage = new SettingsPage({
+    panel: $("settingsModal"), body: $("settingsBody"), title: $("settingsTitle"),
+    back: $("btnSettingsBack"), store: settings, sections: settingsSections,
+  });
+  // voices arrive late in some browsers; refresh the list if it's showing
+  speaker.addEventListener("voices", () => { if (!$("settingsModal").hidden) settingsPage.refresh(); });
+  $("btnSettings").addEventListener("click", () => openSettings());
+  $("btnOpenSettings").addEventListener("click", () => openSettings());
   $("btnCloseSettings").addEventListener("click", closePanels);
   $("btnSwitchLibrary").addEventListener("click", () => location.reload());
 
@@ -1445,33 +1504,6 @@ function wireUi() {
     }
   });
 
-  // app mode applies immediately (no need to save the calibration form)
-  document.querySelectorAll('input[name="appMode"]').forEach((r) => {
-    r.addEventListener("change", () => { if (r.checked) setAppMode(r.value); });
-  });
-  const useHere = (latEl, lngEl) => () => {
-    const fix = gps?.lastFix;
-    if (!fix) { toast("No GPS fix yet", "warn"); return; }
-    $(latEl).value = fix.lat.toFixed(7);
-    $(lngEl).value = fix.lng.toFixed(7);
-  };
-  $("btnUseHereOrigin").addEventListener("click", useHere("originLat", "originLng"));
-  $("btnUseHereX").addEventListener("click", useHere("xLat", "xLng"));
-  $("settingsForm").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const anchors = {
-      origin: { lat: +$("originLat").value, lng: +$("originLng").value },
-      xAxis: { lat: +$("xLat").value, lng: +$("xLng").value },
-    };
-    try { localStorage.setItem(anchorsKey(), JSON.stringify(anchors)); } catch { /* ignore */ }
-    bus.publish(anchorsTopic(), anchors, { retain: true, qos: 1 });
-    state.geo = null; // rebuild the local converter from the new calibration
-    state.smoother.reset();
-    if (gps?.lastFix) showLocalGps(gps.lastFix);
-    closePanels();
-    toast("Calibration saved", "ok");
-  });
-
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closePanels();
   });
@@ -1482,6 +1514,564 @@ function reflectVoiceButton() {
   b.classList.toggle("on", speaker.enabled);
   b.setAttribute("aria-pressed", String(speaker.enabled));
   setIcon(b.querySelector("svg"), speaker.enabled ? "volume_up" : "volume_off");
+}
+
+/* ============================================================ settings */
+const darkQuery = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
+const isDark = () => {
+  const t = settings.get("theme");
+  return t === "dark" || (t === "system" && !!darkQuery?.matches);
+};
+const accentHex = () => (ACCENTS[settings.get("accent")] || ACCENTS.blue).hex;
+const uiScale = () => TEXT_SIZES[settings.get("textSize")] || 1;
+
+/** The floor the home list and the flat view fall back to. */
+function currentFloor() {
+  return String(state.pos?.floor || (state.mode === "gps" ? state.myFloor : startPoint().floor));
+}
+
+function sceneOptions() {
+  return {
+    onZoneClick: onZoneTap,
+    dark: isDark(),
+    accent: accentHex(),
+    uiScale: uiScale(),
+    labelMode: settings.get("labels"),
+    reduceMotion: settings.get("reduceMotion"),
+    viewMode: settings.get("mapView"),
+    showAccuracy: settings.get("showAccuracy"),
+    showFriends: settings.get("showFriends"),
+    floorSpacing: SPACING[settings.get("floorSpacing")] || SPACING.normal,
+    quality: settings.get("quality"),
+    followSelf: settings.get("followMe"),
+  };
+}
+
+/** Settings that matter before a library is picked. */
+function applyStartupSettings() {
+  applyTheme();
+  applyAccent();
+  applyTextSize();
+  document.body.classList.toggle("reduce-motion", settings.get("reduceMotion"));
+  document.body.classList.toggle("no-chips", !settings.get("showChips"));
+  document.body.classList.toggle("no-status", !settings.get("showStatus"));
+  document.body.classList.toggle("blind", settings.get("lowVision"));
+  state.blind = settings.get("lowVision");
+  state.accessible = settings.get("accessible");
+  state.stairPref = settings.get("stairPref") === "west" ? "west" : "central";
+  state.appMode = settings.get("appMode") === "production" ? "production" : "test";
+  state.smoother.strength = SMOOTHING[settings.get("gpsSmoothing")] || 1;
+}
+
+function applyTheme() {
+  const dark = isDark();
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#1f242b" : "#ffffff");
+  scene?.setTheme(dark);
+}
+darkQuery?.addEventListener?.("change", () => {
+  if (settings.get("theme") === "system") applyTheme();
+});
+
+function applyAccent() {
+  document.documentElement.style.setProperty("--accent", accentHex());
+  scene?.setAccent(accentHex());
+}
+
+function applyTextSize() {
+  document.documentElement.style.setProperty("--ts", uiScale());
+  scene?.setUiScale(uiScale());
+  updateLayout();
+}
+
+function applyVoice() {
+  speaker.voiceName = settings.get("voiceName");
+  speaker.rate = settings.get("voiceRate");
+  speaker.volume = settings.get("voiceVolume");
+}
+
+function applyPace() {
+  if (nav) nav.walkSpeed = (model.site.walkSpeed || 1.2) * (PACE[settings.get("walkPace")] || 1);
+}
+
+function applyUnits() {
+  if (state.view === "home") renderHome();
+  if (state.view === "place" && state.place) $("zoneFloor").textContent = placeMeta(state.place);
+  if (state.gpsAcc != null) updateGpsDot(state.gpsAcc);
+  rerouteQuietly(); // step texts carry distances
+}
+
+/** Plan the current route again after a setting that changes it. */
+function rerouteQuietly() {
+  if (state.routeTarget && guidance?.active) navigateTo(state.routeTarget);
+}
+
+function reflectMic() {
+  $("btnMic").hidden = !settings.get("showMic") || !listener?.available;
+}
+
+function avatarColor() {
+  const c = settings.get("avatarColor");
+  return c && c !== "auto" ? c : personColor(state.name || "?");
+}
+
+function reflectAvatar() {
+  for (const id of ["avatarInitial", "meAvatar"]) $(id).textContent = initial(state.name || "?");
+  $("btnProfile").style.background = avatarColor();
+  $("meAvatar").style.background = avatarColor();
+}
+
+function applySetting(key, value) {
+  switch (key) {
+    case "theme": applyTheme(); break;
+    case "accent": applyAccent(); break;
+    case "textSize": applyTextSize(); break;
+    case "reduceMotion":
+      document.body.classList.toggle("reduce-motion", value);
+      scene?.setReduceMotion(value);
+      break;
+    case "mapView":
+      if (!scene) break;
+      scene.setViewMode(value);
+      if (value === "2d" && state.focus === "all") focusFloor(currentFloor());
+      reflectLevels();
+      break;
+    case "labels": scene?.setLabelMode(value); break;
+    case "followMe": if (scene) scene.followSelf = value; break;
+    case "showAccuracy": scene?.setShowAccuracy(value); break;
+    case "floorSpacing": scene?.setFloorSpacing(SPACING[value] || SPACING.normal); break;
+    case "quality": scene?.setQuality(value); break;
+    case "showFriends": scene?.setShowFriends(value); break;
+    case "units": applyUnits(); break;
+    case "accessible": state.accessible = value; rerouteQuietly(); break;
+    case "stairPref": state.stairPref = value; rerouteQuietly(); break;
+    case "walkPace": applyPace(); rerouteQuietly(); break;
+    case "reroute": if (guidance) guidance.autoReroute = value; break;
+    case "vibrate":
+      if (guidance) guidance.vibrate = value;
+      if (value) navigator.vibrate?.(80); // so you know what it feels like
+      break;
+    case "voice":
+      speaker.enabled = value;
+      reflectVoiceButton();
+      if (value) speaker.speak("Directions will be read aloud.", { interrupt: true });
+      else speaker.stop(); // cut off whatever is being said
+      break;
+    case "lowVision":
+      state.blind = value;
+      document.body.classList.toggle("blind", value);
+      if (guidance) guidance.blindMode = value;
+      if (value) settings.set("voice", true);
+      if (social?.enabled && state.uid) social.updateProfile({ blind_mode: value }).catch(() => {});
+      updateLayout();
+      break;
+    case "voiceName": case "voiceRate": case "voiceVolume": applyVoice(); break;
+    case "progressUpdates": if (guidance) guidance.progressUpdates = value; break;
+    case "showChips":
+      document.body.classList.toggle("no-chips", !value);
+      updateLayout();
+      break;
+    case "showMic": reflectMic(); break;
+    case "appMode": onAppModeChanged(); break;
+    case "gpsSmoothing": state.smoother.strength = SMOOTHING[value] || 1; break;
+    case "snapToPaths": if (gps?.lastFix) showLocalGps(gps.lastFix); break;
+    case "avatarColor": reflectAvatar(); break;
+    case "showStatus":
+      document.body.classList.toggle("no-status", !value);
+      updateLayout();
+      break;
+    default: break; // autoFloor, autoStart and recent are read where they're used
+  }
+}
+settings.addEventListener("change", (e) => applySetting(e.detail.key, e.detail.value));
+
+/* ------------------------------------------------------------ units */
+function units() {
+  const u = settings.get("units");
+  return u === "auto" ? (model?.site?.units || "metric") : u;
+}
+
+/** "12 m" / "40 ft", or with long: true "12 meters" / "40 feet" for speech. */
+function fmtDist(m, { long = false } = {}) {
+  if (units() === "imperial") {
+    const raw = m * 3.28084;
+    const ft = raw < 50 ? Math.max(1, Math.round(raw)) : Math.round(raw / 5) * 5;
+    return long ? `${ft} ${ft === 1 ? "foot" : "feet"}` : `${ft} ft`;
+  }
+  const r = Math.max(1, Math.round(m));
+  return long ? `${r} ${r === 1 ? "meter" : "meters"}` : `${r} m`;
+}
+
+/** Longer distances, for "you're 3.2 km from the library". */
+function fmtFar(m) {
+  if (units() === "imperial") return m >= 320 ? `${(m / 1609.34).toFixed(1)} mi` : fmtDist(m);
+  return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : fmtDist(m);
+}
+
+/* ------------------------------------------------------------ actions */
+function askConfirm({ title, text, ok = "OK", danger = true }) {
+  return new Promise((resolve) => {
+    const box = $("confirmDialog");
+    const okBtn = $("confirmOk");
+    $("confirmTitle").textContent = title;
+    $("confirmText").textContent = text;
+    okBtn.textContent = ok;
+    okBtn.className = `btn ${danger ? "danger" : "primary"}`;
+    box.querySelector(".dialog-icon").hidden = !danger;
+    box.hidden = false;
+    const done = (answer) => {
+      box.hidden = true;
+      okBtn.onclick = null;
+      $("confirmCancel").onclick = null;
+      resolve(answer);
+    };
+    okBtn.onclick = () => done(true);
+    $("confirmCancel").onclick = () => done(false);
+    okBtn.focus();
+  });
+}
+
+async function renameMe(name) {
+  name = name.trim();
+  if (name === state.name) return;
+  if (name.length < 2) {
+    toast("A name needs at least 2 characters.", "warn");
+    settingsPage.refresh();
+    return;
+  }
+  if (social.enabled) {
+    try {
+      await social.updateProfile({ display_name: name });
+    } catch (err) {
+      toast(err.message, "warn");
+      settingsPage.refresh();
+      return;
+    }
+  }
+  state.name = name;
+  prefs.set({ name });
+  $("nameInput").value = name;
+  $("meName").textContent = name;
+  reflectAvatar();
+  toast("Name updated", "ok");
+  settingsPage.refresh();
+}
+
+/** Go back to the "How should we find you?" step. */
+function changePositioning() {
+  closePanels();
+  $("welcomeModal").hidden = false;
+  setOnboardingStep(2);
+  setPositionMode(state.mode);
+  renderDeviceList();
+}
+
+function testVoice() {
+  applyVoice();
+  speaker.speak(`This is how directions will sound. In ${fmtDist(20, { long: true })}, turn left.`,
+    { interrupt: true, force: true });
+}
+
+async function resetSettings() {
+  const ok = await askConfirm({
+    title: "Reset all settings?",
+    text: "Everything in Settings goes back to how it started. Your name and the map calibration stay.",
+    ok: "Reset", danger: false,
+  });
+  if (!ok) return;
+  settings.reset();
+  toast("Settings reset", "ok");
+}
+
+async function resetCalibration() {
+  const ok = await askConfirm({
+    title: "Reset the calibration?",
+    text: "The map goes back to the position stored for this library.",
+    ok: "Reset", danger: false,
+  });
+  if (!ok) return;
+  try {
+    localStorage.removeItem(anchorsKey());
+    if (state.library.id === "main") localStorage.removeItem("libnav.anchors");
+  } catch { /* ignore */ }
+  const { origin, xAxis } = model.site.geoAnchors;
+  bus.publish(anchorsTopic(), { origin, xAxis }, { retain: true, qos: 1 });
+  state.geo = null;
+  state.smoother.reset();
+  if (gps?.lastFix) showLocalGps(gps.lastFix);
+  toast("Calibration reset", "ok");
+  settingsPage.refresh();
+}
+
+async function forgetMe() {
+  const ok = await askConfirm({
+    title: "Forget me on this device?",
+    text: "Your name, settings, calibration and recent places are removed from this browser, and your sensor is released.",
+    ok: "Forget me",
+  });
+  if (!ok) return;
+  state.deviceId = "";
+  publishPairing();
+  if (social.enabled) await social.signOut().catch(() => {});
+  try {
+    Object.keys(localStorage).filter((k) => k.startsWith("libnav.")).forEach((k) => localStorage.removeItem(k));
+  } catch { /* ignore */ }
+  setTimeout(() => location.reload(), 400);
+}
+
+/* ------------------------------------------------------------ custom rows */
+function positioningRow() {
+  const how = state.mode === "gps"
+    ? "Just your phone. You set the floor yourself."
+    : `Sensor ${state.deviceId} and your phone's GPS`;
+  const row = el(`<div class="set-row">
+    <span class="set-text"><b>How we find you</b><span class="sub">${esc(how)}</span></span>
+    <button type="button" class="btn tonal small">Change</button></div>`);
+  row.querySelector("button").addEventListener("click", changePositioning);
+  return row;
+}
+
+function calibrationForm() {
+  const a = savedAnchors() || model.site.geoAnchors;
+  const box = el(`<div class="set-row stack calib">
+    <p class="sub">Tie two corners of the building to GPS. Stand at each corner and tap
+      "Use my location", or paste coordinates from Google Maps.</p>
+    <fieldset class="coords"><legend>North-west corner</legend>
+      <div class="field-row">
+        <input data-f="oLat" type="number" step="any" placeholder="Latitude" aria-label="North-west latitude" />
+        <input data-f="oLng" type="number" step="any" placeholder="Longitude" aria-label="North-west longitude" />
+      </div>
+      <button type="button" data-here="o" class="btn text small">${icon("my_location")}Use my location</button>
+    </fieldset>
+    <fieldset class="coords"><legend>North-east corner, ${esc(fmtDist(model.site.width))} along the top edge</legend>
+      <div class="field-row">
+        <input data-f="xLat" type="number" step="any" placeholder="Latitude" aria-label="North-east latitude" />
+        <input data-f="xLng" type="number" step="any" placeholder="Longitude" aria-label="North-east longitude" />
+      </div>
+      <button type="button" data-here="x" class="btn text small">${icon("my_location")}Use my location</button>
+    </fieldset>
+    <button type="button" data-save class="btn primary block">Save calibration</button>
+  </div>`);
+  const f = (k) => box.querySelector(`[data-f="${k}"]`);
+  f("oLat").value = a.origin.lat; f("oLng").value = a.origin.lng;
+  f("xLat").value = a.xAxis.lat; f("xLng").value = a.xAxis.lng;
+  box.querySelectorAll("[data-here]").forEach((b) => b.addEventListener("click", () => {
+    const fix = gps?.lastFix;
+    if (!fix) { toast("No GPS fix yet", "warn"); return; }
+    f(`${b.dataset.here}Lat`).value = fix.lat.toFixed(7);
+    f(`${b.dataset.here}Lng`).value = fix.lng.toFixed(7);
+  }));
+  box.querySelector("[data-save]").addEventListener("click", () => {
+    const v = ["oLat", "oLng", "xLat", "xLng"].map((k) => parseFloat(f(k).value));
+    if (v.some((n) => !Number.isFinite(n))) {
+      toast("Fill in all four numbers first.", "warn");
+      return;
+    }
+    const anchors = { origin: { lat: v[0], lng: v[1] }, xAxis: { lat: v[2], lng: v[3] } };
+    try { localStorage.setItem(anchorsKey(), JSON.stringify(anchors)); } catch { /* ignore */ }
+    bus.publish(anchorsTopic(), anchors, { retain: true, qos: 1 });
+    state.geo = null; // rebuild the local converter from the new calibration
+    state.smoother.reset();
+    if (gps?.lastFix) showLocalGps(gps.lastFix);
+    toast("Calibration saved", "ok");
+    settingsPage.back();
+  });
+  return box;
+}
+
+/* ------------------------------------------------------------ sections */
+const labelOf = (options, value) => options.find((o) => o.value === value)?.label || "";
+
+const THEME_OPTS = [
+  { value: "system", label: "Automatic" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" },
+];
+const TEXT_OPTS = [
+  { value: "s", label: "Small" }, { value: "m", label: "Default" },
+  { value: "l", label: "Large" }, { value: "xl", label: "Larger" },
+];
+const VIEW_OPTS = [{ value: "3d", label: "3D" }, { value: "2d", label: "Flat" }];
+const LABEL_OPTS = [
+  { value: "names", label: "Names" }, { value: "icons", label: "Icons only" }, { value: "off", label: "Off" },
+];
+const SPACING_OPTS = [
+  { value: "close", label: "Close" }, { value: "normal", label: "Normal" }, { value: "wide", label: "Wide" },
+];
+const UNIT_OPTS = [
+  { value: "auto", label: "Automatic" }, { value: "metric", label: "Meters" }, { value: "imperial", label: "Feet" },
+];
+const QUALITY_OPTS = [
+  { value: "saver", label: "Battery saver" }, { value: "balanced", label: "Balanced" }, { value: "sharp", label: "Sharp" },
+];
+const PACE_OPTS = [{ value: "slow", label: "Slow" }, { value: "normal", label: "Normal" }, { value: "fast", label: "Fast" }];
+const SMOOTH_OPTS = [
+  { value: "responsive", label: "Responsive" }, { value: "balanced", label: "Balanced" }, { value: "steady", label: "Steady" },
+];
+
+function settingsSections() {
+  const get = (k) => settings.get(k);
+  const coreName = (k) => model?.site?.cores?.[k] || (k === "west" ? "Second stairs" : "Main stairs");
+  const radius = fmtDist(model?.site?.geofenceRadius || 200);
+  const autoUnits = (model?.site?.units || "metric") === "imperial" ? "feet" : "meters";
+  const voiceOptions = () => [
+    { value: "", label: "Automatic" },
+    ...speaker.voices().map((v) => ({
+      value: v.name,
+      label: `${v.name.replace(/^(Microsoft|Google)\s+/, "").replace(/\s+-\s+.*$/, "")} (${v.lang})`,
+    })),
+  ];
+
+  return [
+    {
+      id: "appearance", group: "Preferences", title: "Appearance", icon: "palette", color: "#7650b8",
+      summary: () => `${labelOf(THEME_OPTS, get("theme"))} · ${(ACCENTS[get("accent")] || ACCENTS.blue).label} · ${labelOf(TEXT_OPTS, get("textSize"))} text`,
+      items: [
+        { type: "choice", key: "theme", label: "Theme", sub: "Automatic follows your phone's light or dark mode.",
+          options: THEME_OPTS, keywords: "dark mode night light colours" },
+        { type: "swatch", key: "accent", label: "Accent colour", keywords: "color colour highlight",
+          options: Object.entries(ACCENTS).map(([value, a]) => ({ value, color: a.hex, label: a.label })) },
+        { type: "choice", key: "textSize", label: "Text size", sub: "Also sizes the labels on the map.",
+          options: TEXT_OPTS, keywords: "font bigger larger small zoom" },
+        { type: "toggle", key: "reduceMotion", label: "Reduce motion",
+          sub: "No sliding panels, pulsing dots or gliding camera.", keywords: "animation" },
+      ],
+    },
+    {
+      id: "map", group: "Preferences", title: "Map", icon: "map", color: "#2c8752",
+      summary: () => `${labelOf(VIEW_OPTS, get("mapView"))} · ${labelOf(LABEL_OPTS, get("labels"))} · ${units() === "imperial" ? "Feet" : "Meters"}`,
+      items: [
+        { type: "choice", key: "mapView", label: "Map view", sub: "Flat looks straight down at one floor at a time.",
+          options: VIEW_OPTS, keywords: "2d 3d top down perspective" },
+        { type: "choice", key: "labels", label: "Room labels", options: LABEL_OPTS, keywords: "names icons text" },
+        { type: "toggle", key: "followMe", label: "Follow my position", sub: "Keep the map centred on you as you walk." },
+        { type: "toggle", key: "showAccuracy", label: "Show GPS accuracy", sub: "The shaded circle around your dot." },
+        { type: "toggle", key: "showFriends", label: "Show friends on the map", hidden: () => !social?.enabled },
+        { type: "choice", key: "floorSpacing", label: "Space between floors", sub: "In the all-floors view.",
+          options: SPACING_OPTS, hidden: () => get("mapView") === "2d" },
+        { type: "choice", key: "units", label: "Units", sub: `Automatic uses ${autoUnits} for this library.`,
+          options: UNIT_OPTS, keywords: "meters metres feet distance imperial metric" },
+        { type: "choice", key: "quality", label: "Graphics", sub: "Battery saver draws fewer frames and pixels.",
+          options: QUALITY_OPTS, keywords: "performance battery fps sharp" },
+      ],
+    },
+    {
+      id: "directions", group: "Preferences", title: "Directions", icon: "route", color: "#c35a2a",
+      summary: () => [
+        get("accessible") ? "Avoiding stairs" : `Via the ${coreName(state.stairPref).toLowerCase()}`,
+        `${labelOf(PACE_OPTS, get("walkPace"))} pace`,
+      ].join(" · "),
+      items: [
+        { type: "toggle", key: "accessible", label: "Avoid stairs", sub: "Routes take the elevator between floors.",
+          keywords: "wheelchair step-free elevator lift stroller" },
+        { type: "choice", key: "stairPref", label: "Preferred stairs",
+          options: [{ value: "central", label: coreName("central") }, { value: "west", label: coreName("west") }],
+          hidden: () => !nav || !canSwitchStairs() || get("accessible") },
+        { type: "choice", key: "walkPace", label: "Walking pace", sub: "Changes the time estimates.", options: PACE_OPTS,
+          keywords: "speed time eta" },
+        { type: "toggle", key: "reroute", label: "Re-route when I go the wrong way",
+          sub: `After 5 seconds more than ${fmtDist(15)} off the route.`, keywords: "recalculate" },
+        { type: "toggle", key: "autoFloor", label: "Switch floors with me",
+          sub: "Show the floor you're on after you take the stairs." },
+        { type: "toggle", key: "vibrate", label: "Vibrate at turns", sub: "A short buzz at each turn and floor change.",
+          hidden: () => !("vibrate" in navigator), keywords: "haptic buzz" },
+      ],
+    },
+    {
+      id: "voice", group: "Preferences", title: "Voice and accessibility", icon: "accessibility_new", color: "#1b827c",
+      summary: () => [get("voice") ? "Directions read aloud" : "Voice off", get("lowVision") ? "Low-vision mode" : ""]
+        .filter(Boolean).join(" · "),
+      items: [
+        { type: "toggle", key: "voice", label: "Read directions aloud", hidden: () => !speaker?.supported,
+          keywords: "speech speak sound" },
+        { type: "toggle", key: "lowVision", label: "Low-vision mode",
+          sub: "Larger controls, directions start as soon as you pick a place, and a reminder of the distance left every 20 seconds.",
+          keywords: "blind accessibility large" },
+        { type: "toggle", key: "progressUpdates", label: "Distance reminders",
+          sub: "Say how far is left every 20 seconds.", hidden: () => get("lowVision") },
+        { type: "header", label: "Voice", hidden: () => !speaker?.supported },
+        { type: "select", key: "voiceName", label: "Voice", options: voiceOptions, hidden: () => !speaker?.supported },
+        { type: "range", key: "voiceRate", label: "Speaking speed", min: 0.6, max: 1.6, step: 0.1,
+          format: (v) => `${v.toFixed(1)}×`, hidden: () => !speaker?.supported, keywords: "rate fast slow" },
+        { type: "range", key: "voiceVolume", label: "Volume", min: 0.2, max: 1, step: 0.1,
+          format: (v) => `${Math.round(v * 100)}%`, hidden: () => !speaker?.supported, keywords: "loud quiet" },
+        { type: "action", label: "Play a sample", icon: "volume_up", run: testVoice, hidden: () => !speaker?.supported },
+      ],
+    },
+    {
+      id: "search", group: "Preferences", title: "Search", icon: "search", color: "#3a6cc2",
+      summary: () => (get("autoStart") ? "Starts directions right away" : "Opens a place card first"),
+      items: [
+        { type: "toggle", key: "autoStart", label: "Start directions right away",
+          sub: "Skip the place card after a search.", keywords: "navigate immediately" },
+        { type: "toggle", key: "showChips", label: "Quick search buttons", sub: "The row of buttons under the search bar.",
+          keywords: "chips shortcuts" },
+        { type: "toggle", key: "showMic", label: "Voice search button", hidden: () => !listener?.available,
+          keywords: "microphone mic speak" },
+        { type: "toggle", key: "recent", label: "Remember recent places", sub: "Shown when you tap the search bar.",
+          keywords: "history" },
+        { type: "action", label: "Clear recent places", icon: "history",
+          run: () => { clearRecent(); toast("Recent places cleared", "ok"); } },
+      ],
+    },
+    {
+      id: "location", group: "Preferences", title: "Location", icon: "my_location", color: "#b8456d",
+      summary: () => `${state.mode === "gps" ? "Phone only" : `Sensor ${state.deviceId}`} · ${get("appMode") === "production" ? "At the library only" : "Test mode"}`,
+      items: [
+        { type: "custom", render: positioningRow, label: "How we find you", keywords: "sensor gps positioning change" },
+        { type: "choice", key: "appMode", label: "When to show my dot",
+          sub: get("appMode") === "production"
+            ? `Hidden when you're more than ${radius} from the library.`
+            : "Test mode: shows anywhere, handy for trying it out at home.",
+          options: [{ value: "test", label: "Anywhere" }, { value: "production", label: "At the library" }],
+          keywords: "test production geofence privacy" },
+        { type: "choice", key: "gpsSmoothing", label: "GPS smoothing",
+          sub: "Steady hides jitter, responsive keeps up faster.", options: SMOOTH_OPTS, keywords: "jitter jumpy" },
+        { type: "toggle", key: "snapToPaths", label: "Snap to walkways",
+          sub: "Keep your dot on the paths once the map is calibrated.", keywords: "corridor" },
+        { type: "header", label: "Map calibration" },
+        { type: "page", label: "Calibrate the map", icon: "pin_drop", to: "calibration",
+          sub: savedAnchors() ? "Calibrated on this device" : "Using the position stored for this library",
+          keywords: "gps corners anchors align" },
+        { type: "action", label: "Reset calibration", icon: "restart_alt", run: resetCalibration,
+          hidden: () => !savedAnchors() },
+      ],
+    },
+    { id: "calibration", title: "Map calibration", hidden: true, items: [{ type: "custom", render: calibrationForm }] },
+    {
+      id: "you", group: "You", title: "Profile", icon: "person", color: "#6a4bc4",
+      summary: () => state.name,
+      items: [
+        { type: "text", label: "Your name", maxLength: 24, placeholder: "Your name",
+          sub: social?.enabled ? "Friends see this next to your dot." : "Shown on your avatar.",
+          get: () => state.name, set: renameMe, keywords: "rename display" },
+        { type: "swatch", key: "avatarColor", label: "Avatar colour", keywords: "color colour picture",
+          options: [
+            { value: "auto", color: personColor(state.name || "?"), label: "Automatic", text: "A" },
+            ...FRIEND_COLORS.map((c, i) => ({ value: c, color: c, label: `Colour ${i + 1}` })),
+          ] },
+        { type: "toggle", key: "showStatus", label: "Show connection status",
+          sub: "The server, GPS and sensor pills in the panel.", keywords: "server latency" },
+        { type: "header", label: "This device" },
+        { type: "action", label: "Reset all settings", icon: "restart_alt", run: resetSettings, keywords: "defaults" },
+        { type: "action", label: "Forget me on this device", icon: "logout", danger: true, run: forgetMe,
+          keywords: "sign out delete data privacy" },
+      ],
+    },
+    {
+      id: "about", group: "You", title: "About", icon: "info", color: "#59626d",
+      summary: () => `Library Nav ${APP_VERSION}`,
+      items: [
+        { type: "info", label: "Library", value: () => state.library?.name || "" },
+        { type: "info", label: "Server", value: () => state.mqtt === "connected"
+          ? `Connected${state.latencyMs != null ? `, ${state.latencyMs} ms` : ""}` : cap(state.mqtt || "offline") },
+        { type: "info", label: "Your ID", value: () => (state.uid || "").slice(0, 8) },
+        { type: "info", label: "Version", value: () => APP_VERSION },
+        { type: "link", label: "How it works", icon: "info", href: "about.html" },
+        { type: "link", label: "Source code", icon: "code", href: "https://github.com/Ted369369/Indoor-3D-Navigation-Platform" },
+        { type: "link", label: "Icons: Material Symbols", sub: "Apache License 2.0", icon: "palette",
+          href: "https://github.com/google/material-design-icons" },
+      ],
+    },
+  ];
 }
 
 /* ============================================================ indicators */
@@ -1507,7 +2097,7 @@ function updateGpsDot(acc) {
     return;
   }
   const cls = acc < 25 ? "ok" : acc < 60 ? "warn" : "err";
-  setStat("connGps", cls, `GPS ±${Math.round(acc)} m`, `GPS accuracy: ±${Math.round(acc)} m`);
+  setStat("connGps", cls, `GPS ±${fmtDist(acc)}`, `GPS accuracy: ±${fmtDist(acc)}`);
 }
 
 function updateSensorDot() {
@@ -1582,6 +2172,7 @@ window.__nav = { state, renderDeviceList, showLocalGps, openPlace, navigateTo, e
   zonesOf: () => nav?.zones,
   scene: () => scene,
   setAppMode, distanceToLibrary, updateCapacityPill, focusFloor, showView, setSheet,
+  settings, openSettings,
   feedFix: (fix) => { if (gps) gps.lastFix = fix; showLocalGps(fix); },
   floorVisibility: () => Object.fromEntries(
     Object.entries(scene.floorGroups).map(([lvl, g]) => [lvl, g.visible])),
