@@ -4,7 +4,7 @@
  * The screen is built from a list of sections the app hands over, so adding
  * a setting means adding one entry there and one case where it gets applied.
  */
-import { icon } from "./icons.js?v=set1";
+import { icon } from "./icons.js?v=ft1";
 
 const KEY = "libnav.settings";
 
@@ -29,6 +29,8 @@ export const DEFAULTS = {
   appMode: "test", gpsSmoothing: "balanced", snapToPaths: true,
   // you
   avatarColor: "auto", showStatus: true,
+  // field test
+  ftMarkSeconds: 10, ftRateRoutes: true, ftBuzz: true,
 };
 
 export class Settings extends EventTarget {

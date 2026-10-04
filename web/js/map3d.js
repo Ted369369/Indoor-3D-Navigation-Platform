@@ -12,8 +12,8 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { Line2 } from "three/addons/lines/Line2.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
-import { categoryOf, iconOf, AMENITY_KINDS } from "./categories.js?v=set1";
-import { iconPath } from "./icons.js?v=set1";
+import { categoryOf, iconOf, AMENITY_KINDS } from "./categories.js?v=ft1";
+import { iconPath } from "./icons.js?v=ft1";
 
 const EXPLODE_FACTOR = 2.4;   // default vertical spacing multiplier in the all-floors view
 const SLAB = 0.3;             // floor plate thickness
@@ -139,6 +139,18 @@ export class MapScene {
         -((e.clientY - rect.top) / rect.height) * 2 + 1
       );
       ray.setFromCamera(ndc, this.camera);
+      if (this._pickFn) {
+        // marking a spot: any point on the floor that's showing, not a room
+        if (this.focusLevel === "all") return;
+        const level = this.focusLevel;
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.displayY(level, 0.06));
+        const at = new THREE.Vector3();
+        if (!ray.ray.intersectPlane(plane, at)) return;
+        const fn = this._pickFn;
+        this.cancelPick();
+        fn({ x: at.x + this.W / 2, y: at.z + this.D / 2, floor: Number(level) });
+        return;
+      }
       const meshes = [...this.zoneMeshes.values()].filter((m) => this._floorVisible(m.userData.level));
       const hit = ray.intersectObjects(meshes)[0];
       if (hit) this.onZoneClick?.(hit.object.userData.zoneId);
@@ -160,6 +172,18 @@ export class MapScene {
     for (const s of this.pathSigns || []) this._sizeSprite(s);
     for (const m of this.lineMaterials || []) m.resolution.set(w, h);
     if (this.pin) this._sizeSprite(this.pin);
+    if (this.mark) this._sizeSprite(this.mark);
+  }
+
+  /** The next tap on the map calls fn({x, y, floor}) instead of opening a room. */
+  pickPoint(fn) {
+    this._pickFn = fn;
+    this.renderer.domElement.style.cursor = "crosshair";
+  }
+
+  cancelPick() {
+    this._pickFn = null;
+    this.renderer.domElement.style.cursor = "";
   }
 
   _shapeFrom(poly) {
@@ -576,6 +600,34 @@ export class MapScene {
     }
     if (this.activeRoutePoints) this._buildPathMesh(this.activeRoutePoints);
     if (this.pinPoint) this._placePin(this.pinPoint);
+    if (this.markPoint) this.setMark(this.markPoint);
+  }
+
+  /** A ringed dot where the tester says they are standing; null removes it. */
+  setMark(point) {
+    this.markPoint = point;
+    if (!point) {
+      if (this.mark) this.mark.visible = false;
+      return;
+    }
+    if (!this.mark) {
+      const S = 26;
+      const { cvs, ctx } = this._canvas(S, S);
+      ctx.shadowColor = "rgba(0, 0, 0, 0.3)";
+      ctx.shadowBlur = 3;
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath(); ctx.arc(13, 13, 10, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowColor = "transparent";
+      ctx.strokeStyle = "#1f242b";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(13, 13, 8, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "#1f242b";
+      ctx.beginPath(); ctx.arc(13, 13, 3, 0, Math.PI * 2); ctx.fill();
+      this.mark = this._sprite(cvs, S, S, { onTop: true });
+      this.scene.add(this.mark);
+    }
+    this.mark.position.set(point.x - this.W / 2, this.displayY(point.floor, 0.3), point.y - this.D / 2);
+    this.mark.visible = this._floorVisible(point.floor);
   }
 
   setExploded(on) {
@@ -724,6 +776,7 @@ export class MapScene {
       if (m.pos) m.group.visible = (m.self || this.showFriends) && (!set || set.has(String(m.pos.floor)));
     }
     if (this.pin) this.pin.visible = !!this.pinPoint && this._floorVisible(this.pinPoint.floor);
+    if (this.mark) this.mark.visible = !!this.markPoint && this._floorVisible(this.markPoint.floor);
     this._applyPathVisibility();
     this._labelsDirty = true;
   }

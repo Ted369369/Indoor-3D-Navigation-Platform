@@ -67,6 +67,13 @@ prefer, walking pace and automatic re-routing; the voice, its speed and volume;
 GPS smoothing and map calibration; and your name and avatar colour. Everything
 is stored on the phone, and there is a search box for finding a setting.
 
+For trying it out on site there's a field test mode (Settings, Field test). It
+records GPS, the floor the app shows, both sensors' pressure and the server
+delay while you walk, asks you to tap only when you reach a floor or want to
+mark where you're standing, and turns it into a report: how many floor changes
+it caught and how fast, the measured floor height, and the position error at
+each spot. [docs/SETUP.md](docs/SETUP.md#field-test) has the details.
+
 ## Repository
 
 | Path | What's in it |

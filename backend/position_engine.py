@@ -30,7 +30,7 @@ MQTT topics consumed:
   libnav/site/<lib>/anchors {"origin":{lat,lng},"xAxis":{lat,lng}} (retained)
 
 MQTT topics produced:
-  libnav/user/<uid>/pos     {"x","y","z","floor","q":{...},"ts"} (retained)
+  libnav/user/<uid>/pos     {"x","y","z","floor","q":{...,"zEst"},"ts"} (retained)
   libnav/user/<uid>/control {"action","reason","slots","active","max","device"}
   libnav/directory          {"devices":[{..., "site"}],"ts"} (retained)
   libnav/capacity           {"max","sites":{<lib>:{"active","waiting"}},"ts"} (retained)
@@ -724,6 +724,7 @@ class Engine:
                 if dev and dev.site != user.site:
                     dev = None  # a sensor from another building says nothing here
                 pressure_ok = False
+                z_est = None
                 if dev:
                     z_est = self.altitude_of(dev, site)
                     if z_est is not None:
@@ -762,6 +763,8 @@ class Engine:
                                 else ("manual" if user.manual_floor else "default"),
                         "rssi": dev.rssi if dev else None,
                         "snapDist": round(dist, 1),
+                        # height the barometer gives, for the app's field test
+                        "zEst": round(z_est, 2) if z_est is not None else None,
                     },
                     "ts": int(now * 1000),
                 }

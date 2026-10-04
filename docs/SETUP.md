@@ -175,6 +175,41 @@ The map has to know where the building is:
    everyone in that library straight away. Each library is calibrated
    separately.
 
+## Field test
+
+Settings, **Field test** records a test walk so you don't have to write
+anything down. Before starting it checks the map is calibrated, the sensor and
+the reference sensor are sending, the position server is running and the dot
+is set to show only at the library, and says what to fix if something isn't.
+
+While it records, a bar under the search box shows the time and a few buttons.
+The phone writes down everything it can see by itself: GPS fixes, the floor and
+position the map shows, both sensors' pressure, the server's round trip, every
+search and every set of directions. You only tap for what it can't know:
+
+- **Change floor**: tap before you set off, then **I'm on floor N** the moment
+  you step off the stairs or out of the elevator. It counts the trip as caught
+  if the app moved you to that floor within 30 s of your tap, and tells you
+  straight away.
+- **Mark my spot**: tap the map exactly where you're standing (a door or a
+  corner you can find on the map). It listens for 10 s and tells you how far
+  off the map was, and how far off plain GPS was.
+- **Stand still**: 30 s on one floor, for a clean height reading.
+- **Note**: anything you notice ("the elevator is on the east side").
+- After directions it asks whether they got you there.
+
+**Stop** shows the results. **Download report** saves one HTML file with the
+numbers worked out and charts: floor changes caught and how quickly, how often
+the floor was right while you stayed put, measured floor-to-floor height
+against the map, position error per spot, sensor dropouts and server delay.
+The raw data comes as `.json` and `.csv` too. Everything stays on the phone
+until you download it, and the screen is kept on while recording because
+nothing records while it's off.
+
+The same page has **Check search answers**, which runs each library's
+`searchTests` (in its model file) through the search box and lists any that land
+in the wrong place. No walking needed.
+
 ## Notes
 
 - **Status indicators.** The small pills in the panel show the server (with the

@@ -8,7 +8,7 @@
   <meta name="description" content="Find your way around a library on a 3D map, using your phone's GPS and a small floor sensor." />
   <title>Library Nav</title>
   <link rel="icon" href="img/icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="css/styles.css?v=set1" />
+  <link rel="stylesheet" href="css/styles.css?v=ft1" />
   <script>
     // theme, accent and text size before the first paint, so nothing flashes
     // (the same tables live in js/app.js)
@@ -74,6 +74,17 @@
       </button>
     </form>
     <div id="chips" class="chips" aria-label="Quick searches"></div>
+  </div>
+
+  <!-- field test controls, only while a test is recording -->
+  <div id="testBar" class="test-bar" role="region" aria-label="Field test" hidden>
+    <div class="tb-head">
+      <span class="tb-rec" aria-hidden="true"></span>
+      <span id="tbTime" class="tb-time">0:00</span>
+      <span id="tbStatus" class="tb-status" aria-live="polite"></span>
+      <span id="tbEnd" class="tb-end"></span>
+    </div>
+    <div id="tbBody" class="tb-body"></div>
   </div>
 
   <div id="awayNotice" class="notice" role="status" hidden>
@@ -291,6 +302,6 @@
   <div id="announcer" class="sr-only" aria-live="assertive"></div>
   <div id="toast" role="status"></div>
 
-  <script type="module" src="js/app.js?v=set1"></script>
+  <script type="module" src="js/app.js?v=ft1"></script>
 </body>
 </html>

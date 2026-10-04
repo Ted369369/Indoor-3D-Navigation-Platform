@@ -2,15 +2,16 @@
  * App: first-run setup, search, place cards, directions, friends and settings
  * around the 3D map. MQTT and GPS live in net.js, routing in nav.js.
  */
-import { MapScene } from "./map3d.js?v=set1";
-import { Navigator } from "./nav.js?v=set1";
-import { IntentEngine } from "./intent.js?v=set1";
-import { Speaker, Listener, Guidance } from "./voice.js?v=set1";
-import { Bus, GpsPublisher } from "./net.js?v=set1";
-import { Social } from "./supa.js?v=set1";
-import { icon, OUTLINE, FILLED } from "./icons.js?v=set1";
-import { categoryOf, iconOf, AMENITY_KINDS } from "./categories.js?v=set1";
-import { Settings, SettingsPage } from "./settings.js?v=set1";
+import { MapScene } from "./map3d.js?v=ft1";
+import { Navigator } from "./nav.js?v=ft1";
+import { IntentEngine } from "./intent.js?v=ft1";
+import { Speaker, Listener, Guidance } from "./voice.js?v=ft1";
+import { Bus, GpsPublisher } from "./net.js?v=ft1";
+import { Social } from "./supa.js?v=ft1";
+import { icon, OUTLINE, FILLED } from "./icons.js?v=ft1";
+import { categoryOf, iconOf, AMENITY_KINDS } from "./categories.js?v=ft1";
+import { Settings, SettingsPage } from "./settings.js?v=ft1";
+import { FieldTest, TestBar, analyze, brief, buildReport, toCsv, checkSearch, duration } from "./fieldtest.js?v=ft1";
 
 const CFG = window.NAV_CONFIG;
 const $ = (id) => document.getElementById(id);
@@ -30,6 +31,7 @@ const state = {
 };
 
 let model, scene, nav, intent, speaker, listener, guidance, bus, gps, social, settingsPage;
+let fieldTest, testBar;
 
 const APP_VERSION = "2026.09";
 const settings = new Settings();
@@ -363,10 +365,14 @@ async function startCore(opts) {
 
   // ---- connectivity
   bus.connect(CFG, state.uid);
-  bus.addEventListener("status", (e) => updateMqttDot(e.detail.state));
+  bus.addEventListener("status", (e) => {
+    updateMqttDot(e.detail.state);
+    fieldTest?.log("mqtt", { state: e.detail.state });
+  });
   bus.addEventListener("latency", (e) => {
     state.latencyMs = e.detail.ms;
     updateMqttDot(state.mqtt);
+    fieldTest?.log("lat", { ms: e.detail.ms });
   });
   bus.client.on("connect", () => {
     publishPairing(); // re-assert (or clear) the claim on every (re)connect
@@ -380,6 +386,7 @@ async function startCore(opts) {
   bus.on("libnav/engine/status", (t, payload) => {
     const was = state.engineOnline;
     state.engineOnline = payload.toString() === "online";
+    if (was !== state.engineOnline) fieldTest?.log("engine", { online: state.engineOnline });
     // only the sensor mode depends on the server; GPS-only works without it
     if (!state.engineOnline && was !== false && state.mode === "esp" && $("welcomeModal").hidden) {
       toast("The position server is offline, so your floor can't be detected right now.", "warn");
@@ -396,10 +403,18 @@ async function startCore(opts) {
   bus.on("libnav/capacity", (t, payload) => {
     try { updateCapacityPill(capacityForLibrary(JSON.parse(payload))); } catch { /* ignore */ }
   });
-  // telemetry of whichever unit is currently paired
+  // telemetry of whichever unit is currently paired (and, for field tests,
+  // this library's reference unit)
   bus.on("libnav/dev/+/telemetry", (t, payload) => {
-    if (!state.deviceId || t.split("/")[2] !== state.deviceId) return;
-    const d = JSON.parse(payload);
+    const id = t.split("/")[2];
+    let d;
+    try { d = JSON.parse(payload); } catch { return; }
+    const isRef = d.role === "reference" && (d.site || "main") === state.library.id;
+    if (isRef) { state.refLastSeen = Date.now(); state.refId = id; }
+    if (fieldTest?.active && (isRef || id === state.deviceId)) {
+      fieldTest.log("tel", { id, role: d.role || "user", p: d.p, temp: d.t, rssi: d.rssi, up: d.up, seq: d.seq });
+    }
+    if (!state.deviceId || id !== state.deviceId) return;
     state.sensorLastSeen = Date.now();
     state.sensorRssi = d.rssi;
   });
@@ -407,6 +422,7 @@ async function startCore(opts) {
   // ---- GPS
   gps = new GpsPublisher(bus, state.uid, CFG.gpsPublishHz, state.library.id);
   gps.addEventListener("fix", (e) => {
+    recordFix(e.detail);
     state.gpsAcc = e.detail.acc;
     updateGpsDot(e.detail.acc);
     showLocalGps(e.detail); // move the dot as you walk, engine or not
@@ -419,6 +435,17 @@ async function startCore(opts) {
 
   setInterval(updateSensorDot, 2000);
   wireUi();
+
+  // ---- field test recorder (carries on with a test that was still running)
+  fieldTest = new FieldTest();
+  testBar = new TestBar(fieldTest, testHost());
+  fieldTest.addEventListener("change", () => {
+    if (!$("settingsModal").hidden) settingsPage.refresh();
+  });
+  fieldTest.init(state.library.id).then(() => {
+    if (fieldTest.active) toast("Still recording the field test.", "ok");
+  });
+
   await refreshFriends();
 }
 
@@ -537,7 +564,14 @@ function updateLayout() {
   document.documentElement.style.setProperty("--peek", `${wide ? 0 : Math.round(peek)}px`);
   if (!scene || !$("welcomeModal").hidden) return;
   const navigating = document.body.classList.contains("navigating");
-  const topEl = navigating && !wide ? $("navBanner") : $("top");
+  let topEl = navigating && !wide ? $("navBanner") : $("top");
+  const bar = $("testBar");
+  if (!bar.hidden) {
+    const above = navigating && !wide ? $("navBanner") : $("searchForm");
+    bar.style.top = `${Math.round(above.getBoundingClientRect().bottom + 8)}px`;
+    document.documentElement.style.setProperty("--tb-bottom", `${Math.round(bar.getBoundingClientRect().bottom)}px`);
+    topEl = bar;
+  }
   scene.setViewPadding({
     top: wide ? 0 : topEl.getBoundingClientRect().bottom + 6,
     bottom: wide ? 0 : peek,
@@ -752,6 +786,10 @@ function submitSearch(text, { spoken = false } = {}) {
   }
 
   const res = intent.resolve(query);
+  fieldTest?.log("search", {
+    q: query, kind: res.kind,
+    name: res.kind === "zone" ? nav.zones[res.zoneId]?.name : res.kind === "nearest" ? res.term : "",
+  });
   if (res.kind === "zone") {
     const zone = nav.zones[res.zoneId];
     if (auto) {
@@ -912,6 +950,7 @@ function onSelfPos(p) {
 
 /** Shared by engine positions and the phone's own GPS. */
 function setPosition(p) {
+  recordPos(p);
   const floorChanged = !state.pos || String(state.pos.floor) !== String(p.floor);
   state.pos = p;
   scene.updateMarker(state.uid, p, { self: true });
@@ -1166,7 +1205,7 @@ setInterval(() => {
 }, 3000);
 
 /* ============================================================ navigation */
-function navigateTo(target) {
+function navigateTo(target, { again = false } = {}) {
   const start = state.pos
     ? { floor: state.pos.floor, x: state.pos.x, y: state.pos.y }
     : startPoint();
@@ -1177,6 +1216,8 @@ function navigateTo(target) {
   }
   state.route = route;
   state.routeTarget = target;
+  fieldTest?.log("route", again ? { phase: "reroute" }
+    : { phase: "start", name: route.targetName, m: Math.round(route.totalM), profile: routeProfile() });
   scene.showPath(route.points);
   scene.highlightZone(typeof target === "string" ? target : null);
   const startFloor = String(route.points[0].floor);
@@ -1279,11 +1320,12 @@ function toggleStairPref() {
 }
 
 function reroute() {
-  if (state.routeTarget) navigateTo(state.routeTarget);
+  if (state.routeTarget) navigateTo(state.routeTarget, { again: true });
 }
 
 function endRoute(arrived = false) {
   const name = state.route?.targetName;
+  if (state.route) fieldTest?.log("route", { phase: "end", arrived });
   guidance.stop(arrived);
   scene.clearPath();
   scene.highlightZone(null);
@@ -1293,6 +1335,7 @@ function endRoute(arrived = false) {
   state.routeTarget = null;
   clearSearch();
   if (arrived && name) toast(`You've arrived at ${name}`, "ok");
+  testBar?.routeEnded(arrived);
 }
 
 function onZoneTap(zoneId) {
@@ -1457,6 +1500,7 @@ function wireUi() {
 
   $("myFloorSel").addEventListener("change", () => {
     state.myFloor = $("myFloorSel").value;
+    fieldTest?.log("floor", { f: state.myFloor });
     publishFloor();
     prefs.set({ myFloor: state.myFloor });
     speaker.speak(`Floor set to ${state.myFloor}.`);
@@ -1603,7 +1647,7 @@ function applyUnits() {
 
 /** Plan the current route again after a setting that changes it. */
 function rerouteQuietly() {
-  if (state.routeTarget && guidance?.active) navigateTo(state.routeTarget);
+  if (state.routeTarget && guidance?.active) navigateTo(state.routeTarget, { again: true });
 }
 
 function reflectMic() {
@@ -1879,6 +1923,309 @@ function calibrationForm() {
   return box;
 }
 
+/* ------------------------------------------------------------ field test */
+const round2 = (v) => (v == null ? null : Math.round(v * 100) / 100);
+const fmtHeight = (m) => (units() === "imperial" ? `${(m * 3.28084).toFixed(1)} ft` : `${m.toFixed(2)} m`);
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+function recordPos(p) {
+  if (!fieldTest?.active) return;
+  fieldTest.log("pos", {
+    x: round2(p.x), y: round2(p.y), f: String(p.floor), mode: p.q?.mode || "",
+    acc: round2(p.q?.gpsAcc), z: p.q?.zEst ?? null, snap: p.q?.snapDist ?? null,
+  });
+  testBar.onPos(p);
+}
+
+/* Raw GPS in map metres, using the same corners as the position server, so
+ * the report can compare plain GPS with what the map showed. */
+let rawGeo = { key: "", fn: null };
+function rawLocal(fix) {
+  const anchors = savedAnchors() || model.site.geoAnchors;
+  if (!anchors) return null;
+  const key = JSON.stringify(anchors);
+  if (rawGeo.key !== key) rawGeo = { key, fn: makeGeo(anchors) };
+  return rawGeo.fn(fix.lat, fix.lng);
+}
+
+function recordFix(fix) {
+  if (!fieldTest?.active) return;
+  const local = rawLocal(fix);
+  fieldTest.log("gps", {
+    lat: fix.lat, lng: fix.lng, acc: round2(fix.acc),
+    x: local ? round2(local[0]) : null, y: local ? round2(local[1]) : null,
+  });
+  testBar.onGps(fix, local);
+}
+
+/** The room a tapped spot is in, amenities included. */
+function spotName(pt) {
+  const room = zoneAt(pt);
+  if (room) return room.name;
+  const any = Object.values(nav.zones).find((z) =>
+    String(z.floor) === String(pt.floor) && inPoly(pt.x, pt.y, z.poly));
+  return any ? any.name : `Floor ${pt.floor}`;
+}
+
+function testHost() {
+  return {
+    levels,
+    shownFloor: () => (state.pos ? String(state.pos.floor) : null),
+    usesSensor: () => state.mode === "esp",
+    setManualFloor: (f) => {
+      if (state.mode !== "gps") return;
+      $("myFloorSel").value = String(f);
+      $("myFloorSel").dispatchEvent(new Event("change"));
+    },
+    focusFloor: (f) => focusFloor(String(f)),
+    pickPoint: (fn) => scene.pickPoint(fn),
+    cancelPick: () => scene?.cancelPick(),
+    setMark: (pt) => scene?.setMark(pt),
+    placeName: spotName,
+    fmtDist: (m) => fmtDist(m),
+    fmtHeight,
+    setting: (k) => settings.get(k),
+    vibrate: (pattern) => navigator.vibrate?.(pattern),
+    layout: () => updateLayout(),
+    confirm: askConfirm,
+    showResults: finishFieldTest,
+  };
+}
+
+async function startFieldTest() {
+  await fieldTest.start({
+    lib: state.library.id, libName: state.library.name || model.site.name,
+    device: state.mode === "esp" ? state.deviceId : "", mode: state.mode,
+    appMode: settings.get("appMode"), calibrated: !!savedAnchors(),
+    version: APP_VERSION, ua: navigator.userAgent, uid: state.uid,
+  });
+  $("settingsModal").hidden = true;
+  toast("Recording. Tell it which floor you're on to begin.", "ok");
+}
+
+/** Work out the short summary for the list, then show the results. */
+async function finishFieldTest(id) {
+  const meta = (await fieldTest.list()).find((m) => m.id === id);
+  if (meta) {
+    meta.brief = brief(analyze(await fieldTest.events(id), model));
+    await fieldTest.saveMeta(meta);
+  }
+  state.ftSession = id;
+  openSettings("fieldtest");
+  settingsPage.show("ftresult");
+}
+
+function ftCheck(ok, title, sub = "", action = null) {
+  const row = el(`<li class="ft-check ${ok === true ? "ok" : ok === false ? "warn" : "info"}">
+    ${icon(ok === true ? "check_circle" : ok === false ? "warning" : "info")}
+    <span class="set-text"><b>${esc(title)}</b>${sub ? `<span class="sub">${esc(sub)}</span>` : ""}</span>
+  </li>`);
+  if (action) {
+    const b = el(`<button type="button" class="btn text small">${esc(action[0])}</button>`);
+    b.addEventListener("click", action[1]);
+    row.appendChild(b);
+  }
+  return row;
+}
+
+function fieldTestStart() {
+  const box = el(`<div class="set-row stack ft-start"></div>`);
+  if (fieldTest?.active) {
+    box.appendChild(el(`<p class="ft-live"><span class="tb-rec"></span>
+      Recording since ${esc(new Date(fieldTest.session.started).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))}</p>`));
+    box.appendChild(el(`<p class="sub">Everything you need while walking is in the bar under the search box.</p>`));
+    const stop = el(`<button type="button" class="btn primary block">Stop and see results</button>`);
+    stop.addEventListener("click", () => testBar.stop());
+    box.appendChild(stop);
+    return box;
+  }
+  box.appendChild(el(`<p class="sub">Walk around with the app open and it writes down what it sees by itself:
+    your GPS, the floor it thinks you're on, the sensor's pressure and how fast the server answers.
+    You only tap when you reach another floor or want to mark exactly where you're standing.
+    At the end you get a report with the numbers worked out.</p>`));
+
+  const list = el(`<ul class="ft-checks"></ul>`);
+  const esp = state.mode === "esp";
+  const now = Date.now();
+  list.appendChild(savedAnchors()
+    ? ftCheck(true, "Map calibrated")
+    : ftCheck(false, "Map not calibrated", "Position errors need it. Stand at two corners, about 5 minutes.",
+      ["Calibrate", () => settingsPage.show("calibration")]));
+  if (esp) {
+    const live = now - state.sensorLastSeen < 6000;
+    list.appendChild(live
+      ? ftCheck(true, `Sensor ${state.deviceId} is sending`)
+      : ftCheck(false, `Nothing from sensor ${state.deviceId}`, "Check it's switched on and on the hotspot."));
+    const ref = now - (state.refLastSeen || 0) < 6000;
+    list.appendChild(ref
+      ? ftCheck(true, `Reference sensor ${state.refId} is on`)
+      : ftCheck(false, "No reference sensor heard", "Floors and heights need the one that stays on floor 1."));
+    list.appendChild(state.engineOnline
+      ? ftCheck(true, "Position server is running")
+      : ftCheck(false, "Position server is offline", "Start it on the laptop, or floors can't be detected."));
+  } else {
+    list.appendChild(ftCheck(null, "Phone GPS only", "Floor detection won't be tested without a sensor.",
+      ["Change", changePositioning]));
+  }
+  list.appendChild(state.gpsAcc != null
+    ? ftCheck(true, `GPS ±${fmtDist(state.gpsAcc)}`)
+    : ftCheck(false, "No GPS fix yet", "Indoors it can take a minute. Stand near a window."));
+  list.appendChild(settings.get("appMode") === "production"
+    ? ftCheck(true, "Dot only shows at the library")
+    : ftCheck(false, "Dot shows anywhere (test mode)", "Use the real building position for real numbers.",
+      ["Switch", () => settings.set("appMode", "production")]));
+  list.appendChild("wakeLock" in navigator
+    ? ftCheck(true, "Screen stays on while recording")
+    : ftCheck(false, "This browser may let the screen turn off", "Turn off auto-lock for the test. Nothing records while it's off."));
+  if (!fieldTest?.saved) {
+    list.appendChild(ftCheck(false, "Can't save on this phone", "Private browsing? Download the report before closing the page."));
+  }
+  box.appendChild(list);
+  const start = el(`<button type="button" class="btn primary block">${icon("science")}Start field test</button>`);
+  start.addEventListener("click", startFieldTest);
+  box.appendChild(start);
+  return box;
+}
+
+function testWhen(t) {
+  const d = new Date(t);
+  return `${d.toLocaleDateString([], { month: "short", day: "numeric" })}, ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+function testSummary(b) {
+  if (!b) return "";
+  const parts = [duration(b.durationS)];
+  if (b.trips) parts.push(`${b.tripsOk} of ${b.trips} floor changes caught`);
+  if (b.spots) parts.push(`${b.spots} spot${b.spots === 1 ? "" : "s"}, typically ${fmtDist(b.spotMedian ?? 0)} off`);
+  return parts.join(" · ");
+}
+
+function fieldTestList() {
+  const box = el(`<div class="ft-list"><div class="set-row"><span class="sub">Loading...</span></div></div>`);
+  fieldTest?.list().then((all) => {
+    const list = all.filter((m) => m.ended && m.lib === state.library.id);
+    box.innerHTML = "";
+    if (!list.length) {
+      box.appendChild(el(`<div class="set-row"><span class="set-text"><span class="sub">No tests here yet. Finished tests show up in this list.</span></span></div>`));
+      return;
+    }
+    for (const m of list) {
+      const row = el(`<button type="button" class="set-row nav">${icon("fact_check")}
+        <span class="set-text"><b>${esc(testWhen(m.started))}</b><span class="sub">${esc(testSummary(m.brief) || duration((m.ended - m.started) / 1000))}</span></span>
+        ${icon("chevron_right", { cls: "ic chev" })}</button>`);
+      row.addEventListener("click", () => {
+        state.ftSession = m.id;
+        settingsPage.show("ftresult");
+      });
+      box.appendChild(row);
+    }
+  });
+  return box;
+}
+
+function saveFile(name, text, type) {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 20000);
+}
+
+function fieldTestResult() {
+  const box = el(`<div class="set-row stack ft-result"><span class="sub">Working it out...</span></div>`);
+  (async () => {
+    const meta = (await fieldTest.list()).find((m) => m.id === state.ftSession);
+    if (!meta) {
+      box.innerHTML = `<span class="sub">This test isn't on this phone any more.</span>`;
+      return;
+    }
+    const events = await fieldTest.events(meta.id);
+    const an = analyze(events, model);
+    const f = an.floors, sp = an.spots;
+    const dev = an.devices.find((d) => d.role !== "reference");
+    const tiles = [
+      ["Floor changes caught", f.measured ? `${f.ok} of ${f.measured}` : "–", f.measured ? "" : meta.mode === "gps" ? "Needs a sensor" : "No trips"],
+      ["Typical switch time", f.medianDelay != null ? `${Math.abs(f.medianDelay).toFixed(1)} s` : "–",
+        f.medianDelay == null ? "Counted from your tap" : f.medianDelay < 0 ? "Before your tap" : "After your tap"],
+      ["Typical position error", sp.median != null ? fmtDist(sp.median) : "–", sp.rawMedian != null ? `GPS alone ${fmtDist(sp.rawMedian)}` : `${sp.list.length} spots`],
+      ["Sensor heard for", dev ? duration((dev.last - dev.first) / 1000) : "–", dev ? `${dev.gaps} gap${dev.gaps === 1 ? "" : "s"} over 5 s` : "No sensor"],
+    ];
+    const facts = [];
+    if (f.settledPct != null) facts.push(`On one floor, the app showed the right floor ${f.settledPct.toFixed(1)}% of the time.`);
+    for (const g of an.height.gaps) {
+      facts.push(`Floor ${g.from} to ${g.to}: ${fmtHeight(g.measured)} measured, ${fmtHeight(g.model)} in the map.`);
+    }
+    if (an.latency.median != null) facts.push(`Server round trip typically ${Math.round(an.latency.median)} ms.`);
+    if (an.routes.length) facts.push(`${plural(an.routes.length, "set")} of directions, ${an.routes.filter((r) => r.arrived).length} reached the end.`);
+    if (an.searches.list.length) facts.push(`${plural(an.searches.list.length, "search", "searches")}, ${an.searches.unknown} found nothing.`);
+    if (an.notes.length) facts.push(`${plural(an.notes.length, "note")}.`);
+    if (an.hiddenMs > 30000) facts.push(`Screen was off for ${duration(an.hiddenMs / 1000)}; nothing was recorded then.`);
+
+    box.innerHTML = "";
+    box.appendChild(el(`<p class="ft-when"><b>${esc(testWhen(meta.started))}</b><span class="sub">${esc(duration(an.durationS))} · ${meta.mode === "gps" ? "Phone GPS only" : `Sensor ${esc(meta.device)}`}</span></p>`));
+    box.appendChild(el(`<div class="ft-tiles">${tiles.map(([l, v, s]) => `<div class="ft-tile"><span class="sub">${esc(l)}</span><b>${esc(v)}</b>${s ? `<span class="sub">${esc(s)}</span>` : ""}</div>`).join("")}</div>`));
+    if (facts.length) box.appendChild(el(`<ul class="ft-facts">${facts.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`));
+
+    const stamp = new Date(meta.started).toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-");
+    const base = `field-test-${meta.lib}-${stamp}`;
+    const reportHtml = () => buildReport(meta, an, { model, unitsKind: units(), version: APP_VERSION });
+    const report = el(`<button type="button" class="btn primary block">${icon("download")}Download report</button>`);
+    report.addEventListener("click", () => saveFile(`${base}.html`, reportHtml(), "text/html"));
+    box.appendChild(report);
+    const more = el(`<div class="ft-actions"></div>`);
+    const data = el(`<button type="button" class="btn tonal small">Raw data (.json)</button>`);
+    data.addEventListener("click", () => saveFile(`${base}.json`,
+      JSON.stringify({ meta, library: { id: meta.lib, name: model.site.name }, events }, null, 1), "application/json"));
+    const csv = el(`<button type="button" class="btn tonal small">Spreadsheet (.csv)</button>`);
+    csv.addEventListener("click", () => saveFile(`${base}.csv`, toCsv(events), "text/csv"));
+    more.append(data, csv);
+    const file = () => new File([reportHtml()], `${base}.html`, { type: "text/html" });
+    if (navigator.canShare?.({ files: [new File([""], "x.html", { type: "text/html" })] })) {
+      const share = el(`<button type="button" class="btn tonal small">Share report</button>`);
+      share.addEventListener("click", () => navigator.share({ files: [file()], title: "Field test report" }).catch(() => {}));
+      more.appendChild(share);
+    }
+    box.appendChild(more);
+    const del = el(`<button type="button" class="btn text small ft-delete">${icon("delete")}Delete this test</button>`);
+    del.addEventListener("click", async () => {
+      const ok = await askConfirm({ title: "Delete this test?", text: "The recording and its results are removed from this phone.", ok: "Delete" });
+      if (!ok) return;
+      await fieldTest.remove(meta.id);
+      settingsPage.back();
+    });
+    box.appendChild(del);
+  })();
+  return box;
+}
+
+function searchCheck() {
+  const tests = model.searchTests || [];
+  const box = el(`<div class="set-row stack">
+    <span class="set-text"><b>Check search answers</b><span class="sub">Runs ${tests.length} everyday searches for this library
+      and checks each one lands in the right place.</span></span>
+    <div class="ft-search"></div></div>`);
+  const out = box.querySelector(".ft-search");
+  const run = el(`<button type="button" class="btn tonal small">Run the check</button>`);
+  run.addEventListener("click", () => {
+    const results = checkSearch(intent, tests, nav.zones);
+    const misses = results.filter((r) => !r.ok);
+    out.innerHTML = "";
+    out.appendChild(el(`<p class="ft-score ${misses.length ? "warn" : "ok"}">${icon(misses.length ? "warning" : "check_circle")}
+      <span>${results.length - misses.length} of ${results.length} went to the right place</span></p>`));
+    if (misses.length) {
+      out.appendChild(el(`<ul class="ft-misses">${misses.map((r) =>
+        `<li><b>"${esc(r.q)}"</b> went to ${esc(r.got)}, should be ${esc(r.want)}</li>`).join("")}</ul>`));
+    }
+    fieldTest?.log("searchCheck", { total: results.length, misses: misses.map((r) => r.q) });
+  });
+  box.insertBefore(run, out);
+  return box;
+}
+
 /* ------------------------------------------------------------ sections */
 const labelOf = (options, value) => options.find((o) => o.value === value)?.label || "";
 
@@ -2037,6 +2384,27 @@ function settingsSections() {
     },
     { id: "calibration", title: "Map calibration", hidden: true, items: [{ type: "custom", render: calibrationForm }] },
     {
+      id: "fieldtest", group: "Tools", title: "Field test", icon: "science", color: "#0f7f86",
+      summary: () => (fieldTest?.active ? "Recording now" : "Record a test walk and get a report"),
+      items: [
+        { type: "custom", render: fieldTestStart, label: "Start a field test",
+          keywords: "record report accuracy measure experiment data" },
+        { type: "header", label: "While testing" },
+        { type: "choice", key: "ftMarkSeconds", label: "Listen after marking a spot",
+          sub: "Longer gives a steadier average.",
+          options: [5, 10, 20].map((v) => ({ value: v, label: `${v} s` })), keywords: "field test spot" },
+        { type: "toggle", key: "ftRateRoutes", label: "Ask how directions went",
+          sub: "A quick yes or no when you arrive.", keywords: "field test rating" },
+        { type: "toggle", key: "ftBuzz", label: "Buzz when the app changes floor",
+          sub: "So you know it noticed without looking.", keywords: "field test vibrate" },
+        { type: "header", label: "Tests at this library" },
+        { type: "custom", render: fieldTestList },
+        { type: "header", label: "No walking needed" },
+        { type: "custom", render: searchCheck, label: "Check search answers", keywords: "test words queries" },
+      ],
+    },
+    { id: "ftresult", title: "Test results", hidden: true, items: [{ type: "custom", render: fieldTestResult }] },
+    {
       id: "you", group: "You", title: "Profile", icon: "person", color: "#6a4bc4",
       summary: () => state.name,
       items: [
@@ -2174,6 +2542,9 @@ window.__nav = { state, renderDeviceList, showLocalGps, openPlace, navigateTo, e
   setAppMode, distanceToLibrary, updateCapacityPill, focusFloor, showView, setSheet,
   settings, openSettings,
   feedFix: (fix) => { if (gps) gps.lastFix = fix; showLocalGps(fix); },
+  feedPos: (p) => onSelfPos(p),
+  fieldTest: () => fieldTest,
+  testBar: () => testBar,
   floorVisibility: () => Object.fromEntries(
     Object.entries(scene.floorGroups).map(([lvl, g]) => [lvl, g.visible])),
   markerCount: () => scene?.markers?.size ?? 0,
