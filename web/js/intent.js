@@ -31,8 +31,11 @@ export class IntentEngine {
       if (!zone && !this.intents[intentName]) continue;
       this.dict.push({ t: row.term, a: row.aliases || [], zone, intent: intentName });
     }
-    this.fuse = new Fuse(this.dict, {
-      keys: [{ name: "t", weight: 0.7 }, { name: "a", weight: 0.3 }],
+    // fuzzy matching looks at every word on its own, so a typo in an alias
+    // ("picure books") counts as much as a typo in the main term
+    this.terms = this.dict.flatMap((row) => [row.t, ...row.a].map((term) => ({ term, row })));
+    this.fuse = new Fuse(this.terms, {
+      keys: ["term"],
       threshold: 0.34,
       ignoreLocation: true,
       includeScore: true,
@@ -75,8 +78,15 @@ export class IntentEngine {
       }
     }
     if (!hit) {
-      const results = this.fuse.search(q);
-      if (results.length && results[0].score < 0.45) hit = results[0].item;
+      // typo-sized differences only: "the" inside "mathematics" is no match,
+      // and a very short word only counts as the start of a term ("map", "maps")
+      const close = (term) => {
+        const t = term.toLowerCase();
+        if (q.length < 4) return t.startsWith(q) && t.length - q.length <= 1;
+        return Math.abs(t.length - q.length) <= Math.max(2, q.length * 0.4);
+      };
+      const best = this.fuse.search(q).find((r) => close(r.item.term));
+      if (best && best.score < 0.45) hit = best.item.row;
     }
     if (!hit) return { kind: "unknown", reply: this._unknownReply() };
 
@@ -112,12 +122,13 @@ export class IntentEngine {
       }
       if (out.length >= limit) return out;
     }
-    for (const r of this.fuse.search(q).slice(0, limit)) {
+    for (const r of this.fuse.search(q).slice(0, limit * 3)) {
       // only lean on fuzzy matches when the typed text found little on its own
       if (out.length && r.score > 0.2) break;
-      if (!seen.has(r.item.t)) {
-        seen.add(r.item.t);
-        out.push({ label: r.item.t, term: r.item.t });
+      const t = r.item.row.t;
+      if (!seen.has(t)) {
+        seen.add(t);
+        out.push({ label: t, term: t });
       }
       if (out.length >= limit) break;
     }

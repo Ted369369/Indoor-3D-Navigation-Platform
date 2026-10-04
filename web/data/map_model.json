@@ -427,7 +427,7 @@
     {"t": "travel", "a": ["travel guide", "旅遊", "旅行", "自助旅行"], "zone": "4F-A"},
     {"t": "world geography", "a": ["世界地理"], "zone": "4F-A"},
     {"t": "biography", "a": ["傳記", "memoir", "回憶錄"], "zone": "4F-A"},
-    {"t": "novels", "a": ["fiction", "小說", "武俠", "romance novels", "言情"], "zone": "4F-DN"},
+    {"t": "novels", "a": ["fiction", "小說", "武俠", "romance novels", "言情", "三國演義", "紅樓夢", "西遊記", "水滸傳"], "zone": "4F-DN"},
     {"t": "poetry", "a": ["poems", "詩", "詩集", "唐詩"], "zone": "4F-DN"},
     {"t": "essays", "a": ["散文", "prose"], "zone": "4F-DN"},
     {"t": "chinese literature", "a": ["中國文學", "文學"], "zone": "4F-DN"},
@@ -474,7 +474,7 @@
     {"t": "reference", "a": ["參考", "參考資料", "reference books", "中文參考", "reference room", "參考室"], "zone": "3F-REF"},
     {"t": "foreign reference", "a": ["外文參考", "外文參考資料", "foreign language reference"], "zone": "3F-FL"},
     {"t": "american corner", "a": ["美國資料中心", "american reference", "美國資料"], "zone": "3F-AC"},
-    {"t": "study abroad", "a": ["留學", "留學資料中心", "studying overseas", "留學資料"], "zone": "3F-SA"},
+    {"t": "study abroad", "a": ["留學", "留學資料中心", "studying overseas", "留學資料", "studying abroad", "study overseas"], "zone": "3F-SA"},
     {"t": "adult education", "a": ["成人教育", "成人教育資源中心", "continuing education"], "zone": "3F-AE"},
     {"t": "maps", "a": ["地圖", "輿圖", "輿圖區", "atlas", "globe", "地圖集"], "zone": "3F-MAP"},
     {"t": "microform", "a": ["縮影", "縮影資料", "microfilm", "microfiche"], "zone": "3F-MF"},
@@ -523,5 +523,34 @@
       "lead": "Taking you to the nearest elevator."
     }
   },
-  "demoWalk": [["2", "n2-b"], ["2", "n2-south"], ["2", "n2-a"], ["2", "n2-hall"], ["2", "n2-esc"], ["4", "n4-esc"], ["4", "n4-f"], ["4", "n4-c"], ["4", "n4-b"], ["4", "n4-ds"], ["4", "n4-hall"], ["4", "n4-esc"], ["5", "n5-esc"], ["5", "n5-hall"], ["5", "n5-a"], ["5", "n5-d"], ["5", "n5-j"], ["5", "n5-a"], ["5", "n5-hall"], ["5", "n5-esc"], ["4", "n4-esc"], ["4", "n4-hall"], ["4", "n4-elev"], ["2", "n2-elev"], ["2", "n2-south"], ["2", "n2-b"]]
+  "demoWalk": [["2", "n2-b"], ["2", "n2-south"], ["2", "n2-a"], ["2", "n2-hall"], ["2", "n2-esc"], ["4", "n4-esc"], ["4", "n4-f"], ["4", "n4-c"], ["4", "n4-b"], ["4", "n4-ds"], ["4", "n4-hall"], ["4", "n4-esc"], ["5", "n5-esc"], ["5", "n5-hall"], ["5", "n5-a"], ["5", "n5-d"], ["5", "n5-j"], ["5", "n5-a"], ["5", "n5-hall"], ["5", "n5-esc"], ["4", "n4-esc"], ["4", "n4-hall"], ["4", "n4-elev"], ["2", "n2-elev"], ["2", "n2-south"], ["2", "n2-b"]],
+  "searchTests": [
+    {"q": "c language", "zone": "5F-C"},
+    {"q": "我想知道最新時事", "intent": "newspapers"},
+    {"q": "where can I study quietly", "intent": "nearest_reading"},
+    {"q": "python books", "zone": "5F-C"},
+    {"q": "calculus textbook", "zone": "5F-C"},
+    {"q": "how to invest in stocks", "zone": "5F-E"},
+    {"q": "清朝歷史", "zone": "5F-F"},
+    {"q": "三國演義", "zone": "4F-DN"},
+    {"q": "japanese novels", "zone": "4F-DN"},
+    {"q": "where is the bathroom", "intent": "nearest_restroom"},
+    {"q": "電梯", "intent": "nearest_elevator"},
+    {"q": "borrow books", "zone": "1F-B"},
+    {"q": "get a library card", "zone": "1F-B"},
+    {"q": "I need to print something", "zone": "1F-A"},
+    {"q": "photocopy", "zone": "3F-COPY"},
+    {"q": "world war 2", "zone": "4F-A"},
+    {"q": "guitar lessons", "zone": "4F-B"},
+    {"q": "national geographic", "zone": "2F-B"},
+    {"q": "toeic practice", "zone": "4F-DN"},
+    {"q": "studying abroad", "zone": "3F-SA"},
+    {"q": "maps of taiwan", "zone": "3F-MAP"},
+    {"q": "recipes for dinner", "zone": "5F-D"},
+    {"q": "meditation", "zone": "5F-G"},
+    {"q": "programing", "zone": "5F-C"},
+    {"q": "pyschology", "zone": "5F-H"},
+    {"q": "2樓", "floor": 2},
+    {"q": "go to floor 5", "floor": 5}
+  ]
 }

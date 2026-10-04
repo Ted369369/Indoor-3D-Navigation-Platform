@@ -164,7 +164,7 @@
     {"t": "psychology", "a": ["self help", "self-help", "philosophy", "心理學", "哲學"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 100s on the shelves."},
     {"t": "religion", "a": ["bible", "buddhism", "mythology", "宗教", "聖經"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 200s on the shelves."},
     {"t": "social sciences", "a": ["economics", "law", "politics", "education", "finance", "investing", "經濟", "法律", "政治", "教育", "投資"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 300s on the shelves."},
-    {"t": "languages", "a": ["learn spanish", "english grammar", "dictionaries", "esl", "語言", "字典"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 400s on the shelves."},
+    {"t": "languages", "a": ["learn spanish", "english grammar", "dictionaries", "esl", "語言", "字典", "spanish", "french", "language lessons", "西班牙文"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 400s on the shelves."},
     {"t": "science", "a": ["math", "mathematics", "physics", "chemistry", "biology", "astronomy", "數學", "物理", "化學", "生物", "天文"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 500s on the shelves."},
     {"t": "health", "a": ["medicine", "nutrition", "fitness", "醫學", "健康"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 600s on the shelves."},
     {"t": "cooking", "a": ["cookbooks", "recipes", "baking", "食譜", "烹飪", "料理"], "zone": "Y2-AD", "note": "It's adult nonfiction, so look for the 600s on the shelves."},
@@ -189,7 +189,7 @@
     {"t": "play area", "a": ["outdoor play", "playground", "children's terrace", "遊戲區"], "zone": "Y1-PL"},
     {"t": "6-7-8 lounge", "a": ["678 lounge", "678", "middle school", "tweens", "國中"], "zone": "Y1-678"},
     {"t": "teen loft", "a": ["teens", "teen", "young adult", "ya books", "video games", "gaming", "青少年", "電玩"], "zone": "Y2-TL"},
-    {"t": "checkout", "a": ["check out", "borrow", "return books", "holds", "hold pickup", "circulation desk", "library card", "借書", "還書", "預約取書", "借閱證"], "zone": "Y1-LB"},
+    {"t": "checkout", "a": ["check out", "borrow", "return books", "holds", "hold pickup", "circulation desk", "library card", "借書", "還書", "預約取書", "借閱證", "return a book", "return", "renew"], "zone": "Y1-LB"},
     {"t": "entrance", "a": ["lobby", "exit", "front door", "入口", "出口", "大廳"], "zone": "Y1-LB"},
     {"t": "passports", "a": ["passport", "passport services", "護照"], "zone": "Y1-PP"},
     {"t": "book corner", "a": ["friends of the library", "book sale", "used books", "bookstore", "二手書", "書店"], "zone": "Y1-BC"},
@@ -233,5 +233,33 @@
       "lead": "Taking you to the nearest elevator."
     }
   },
-  "demoWalk": [["1", "y1-ent"], ["1", "y1-lobby"], ["1", "y1-hall-w"], ["1", "y1-child"], ["1", "y1-story"], ["1", "y1-child"], ["1", "y1-hall-w"], ["1", "y1-lobby"], ["1", "y1-stair"], ["2", "y2-stair"], ["2", "y2-land"], ["2", "y2-hall-w"], ["2", "y2-adult"], ["2", "y2-hall-w"], ["2", "y2-land"], ["2", "y2-hall-e"], ["2", "y2-teen"], ["2", "y2-hall-e"], ["2", "y2-land"], ["2", "y2-hall-w"], ["2", "y2-elev"], ["1", "y1-elev"], ["1", "y1-lobby"], ["1", "y1-hall-e"], ["1", "y1-hall-c"], ["1", "y1-comm"], ["1", "y1-hall-c"], ["1", "y1-hall-e"], ["1", "y1-lobby"]]
+  "demoWalk": [["1", "y1-ent"], ["1", "y1-lobby"], ["1", "y1-hall-w"], ["1", "y1-child"], ["1", "y1-story"], ["1", "y1-child"], ["1", "y1-hall-w"], ["1", "y1-lobby"], ["1", "y1-stair"], ["2", "y2-stair"], ["2", "y2-land"], ["2", "y2-hall-w"], ["2", "y2-adult"], ["2", "y2-hall-w"], ["2", "y2-land"], ["2", "y2-hall-e"], ["2", "y2-teen"], ["2", "y2-hall-e"], ["2", "y2-land"], ["2", "y2-hall-w"], ["2", "y2-elev"], ["1", "y1-elev"], ["1", "y1-lobby"], ["1", "y1-hall-e"], ["1", "y1-hall-c"], ["1", "y1-comm"], ["1", "y1-hall-c"], ["1", "y1-hall-e"], ["1", "y1-lobby"]],
+  "searchTests": [
+    {"q": "cookbooks", "zone": "Y2-AD"},
+    {"q": "picture books for my kid", "zone": "Y1-CH"},
+    {"q": "繪本", "zone": "Y1-CH"},
+    {"q": "storytime schedule", "zone": "Y1-ST"},
+    {"q": "renew my passport", "zone": "Y1-PP"},
+    {"q": "passport photo", "zone": "Y1-PP"},
+    {"q": "where are the teen books", "zone": "Y2-TL"},
+    {"q": "video games", "zone": "Y2-TL"},
+    {"q": "used books for sale", "zone": "Y1-BC"},
+    {"q": "quiet place to study", "intent": "nearest_reading"},
+    {"q": "group study room", "zone": "Y2-GS"},
+    {"q": "bathroom", "intent": "nearest_restroom"},
+    {"q": "check out books", "zone": "Y1-LB"},
+    {"q": "return a book", "zone": "Y1-LB"},
+    {"q": "newspaper", "intent": "newspapers"},
+    {"q": "history of yorba linda", "zone": "Y2-AD"},
+    {"q": "nixon", "zone": "Y2-AD"},
+    {"q": "middle school hangout", "zone": "Y1-678"},
+    {"q": "lift", "intent": "nearest_elevator"},
+    {"q": "大字書", "zone": "Y2-AD"},
+    {"q": "events this week", "zone": "Y1-CR"},
+    {"q": "makerspace", "zone": "Y2-DIY"},
+    {"q": "mystery novels", "zone": "Y2-AD"},
+    {"q": "spanish lessons", "zone": "Y2-AD"},
+    {"q": "picure books", "zone": "Y1-CH"},
+    {"q": "go to floor 2", "floor": 2}
+  ]
 }
